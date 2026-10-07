@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aplikasi Kasir Rental PS & F&B</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="brand-wrap">
+      <img class="brand-logo" src="assets/logo-three-game.svg" alt="Three Game Rental PS logo">
+      <div class="brand">
+        THREE GAME <span>RENTAL PS</span>
+      </div>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-btn active" id="btn-nav-kasir" onclick="switchTab('kasir')">Beranda / Kasir</button>
+      <button class="nav-btn" id="btn-nav-riwayat" onclick="switchTab('riwayat')">Riwayat & Keuangan</button>
+      <button class="nav-btn" id="btn-nav-admin" onclick="switchTab('admin')">Admin (Menu & Tarif)</button>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- TAB 1: KASIR -->
+    <section id="tab-kasir" class="tab-content active">
+      <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="font-size: 18px;">Daftar Unit PlayStation</h2>
+        <span style="font-size: 13px; color: #64748b;">Klik <strong>Mulai</strong> saat pelanggan datang</span>
+      </div>
+      <div class="units-grid" id="unitsGrid"></div>
+    </section>
+
+    <!-- TAB 2: RIWAYAT & KEUANGAN -->
+    <section id="tab-riwayat" class="tab-content">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+        <h2>Laporan & Riwayat Keuangan</h2>
+        <button class="btn btn-secondary" style="max-width: 180px;" onclick="exportDatabaseJSON()">📥 Download DB (.JSON)</button>
+      </div>
+
+      <!-- Ringkasan Keuangan -->
+      <div class="stats-grid">
+        <div class="stat-card green">
+          <div class="label">Total Omset Pendapatan</div>
+          <div class="value" id="statTotalOmset">Rp 0</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="label">Pendapatan Rental PS</div>
+          <div class="value" id="statTotalRental">Rp 0</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="label">Pendapatan Minuman & Snack</div>
+          <div class="value" id="statTotalFnb">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Transaksi Selesai</div>
+          <div class="value" id="statTotalTrx">0</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+        <label for="historyFilterSelect" style="font-size: 13px; color: #475569; font-weight: 600;">Filter Riwayat:</label>
+        <select id="historyFilterSelect" class="form-control" style="max-width: 200px;" onchange="renderHistory()">
+          <option value="all">Semua Waktu</option>
+          <option value="today">Hari Ini</option>
+          <option value="week">Minggu Ini</option>
+          <option value="month">Bulan Ini</option>
+          <option value="year">Tahun Ini</option>
+        </select>
+      </div>
+
+      <!-- Tabel Riwayat Transaksi -->
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>ID Transaksi</th>
+              <th>Waktu</th>
+              <th>Unit & Durasi</th>
+              <th>Biaya Rental</th>
+              <th>Minuman/Snack</th>
+              <th>Total Bayar</th>
+              <th>Metode</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 3: ADMIN -->
+    <section id="tab-admin" class="tab-content">
+      <h2 style="margin-bottom: 20px;">Manajemen Item Minuman, Makanan & Tarif PS</h2>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+
+        <!-- Form Tambah Produk Minuman/Makanan -->
+        <div style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); color:#e2e8f0; padding:20px; border-radius:12px; border:1px solid rgba(212, 175, 55, 0.2); box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);">
+          <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Tambah Item Baru (Minuman/Makanan)</h3>
+          <form onsubmit="addNewProduct(event)">
+            <div class="form-group">
+              <label>Nama Item</label>
+              <input type="text" id="adminProdName" class="form-control" placeholder="Contoh: Es Teh Jumbo" required>
+            </div>
+            <div class="form-group">
+              <label>Kategori</label>
+              <select id="adminProdCategory" class="form-control">
+                <option value="Minuman">Minuman</option>
+                <option value="Makanan">Makanan</option>
+                <option value="Snack">Snack</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Upload Gambar Produk</label>
+              <input type="file" id="adminProdImageUpload" class="form-control" accept="image/*">
+              <input type="hidden" id="adminProdImage">
+              <div style="margin-top:12px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(148,163,184,0.35); border-radius:12px; min-height:120px; background: rgba(15,23,42,0.65);">
+                <img id="adminProdImagePreview" src="assets/placeholder-product.svg" alt="Preview produk" style="width:110px; height:110px; object-fit:cover; border-radius:12px; display:block;">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Harga Jual (Rp)</label>
+              <input type="number" id="adminProdPrice" class="form-control" placeholder="Contoh: 3000" required>
+            </div>
+            <div class="form-group">
+              <label>Jumlah Stok Awal (opsional)</label>
+              <input type="number" id="adminProdStock" class="form-control" placeholder="Kosong = stok tidak dibatasi">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">+ Tambah Item</button>
+          </form>
+        </div>
+
+        <!-- Form Tambah Unit PS -->
+        <div style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); color:#e2e8f0; padding:20px; border-radius:12px; border:1px solid rgba(212, 175, 55, 0.2); box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);">
+          <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Tambah Unit Baru</h3>
+          <form onsubmit="addNewUnit(event)">
+            <div class="form-group">
+              <label>Nama Unit</label>
+              <input type="text" id="adminUnitName" class="form-control" placeholder="Contoh: PS 5 #3 atau TV 1" required>
+            </div>
+            <div class="form-group">
+              <label>Upload Gambar Unit</label>
+              <input type="file" id="adminUnitImageUpload" class="form-control" accept="image/*">
+              <input type="hidden" id="adminUnitImage">
+            </div>
+            <div class="form-group">
+              <label>Tarif per Jam (Rp)</label>
+              <input type="number" id="adminUnitRate" class="form-control" placeholder="Contoh: 20000" required>
+            </div>
+            <button type="submit" class="btn btn-success" style="width:100%;">+ Tambah Unit</button>
+          </form>
+
+          <div style="margin-top:20px;">
+            <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Pengaturan Tarif Unit PS</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Unit</th>
+                    <th>Tipe</th>
+                    <th>Tarif Saat Ini</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="adminUnitTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Tabel Daftar Produk Minuman / Makanan -->
+      <div style="margin-top:24px;">
+        <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Daftar Stok Minuman & Makanan</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Produk</th>
+                <th>Kategori</th>
+                <th>Harga Jual</th>
+                <th>Sisa Stok</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminProductTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Kelola Riwayat Transaksi</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Waktu</th>
+                <th>Unit</th>
+                <th>Total</th>
+                <th>Metode</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminHistoryTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- MODAL: MULAI RENTAL -->
+  <div class="modal-overlay" id="modalStartRental">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="startUnitTitle">Mulai Rental</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+      <p id="startUnitRate" style="color: #64748b; font-size:13px; margin-bottom: 16px;"></p>
+      
+      <label style="font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">Pilih Paket Durasi:</label>
+      <div class="duration-buttons">
+        <button class="d-btn selected" data-mins="0" onclick="selectDuration(0, this)">LOSS</button>
+        <button class="d-btn" data-mins="30" onclick="selectDuration(30, this)">30 Mnt</button>
+        <button class="d-btn" data-mins="60" onclick="selectDuration(60, this)">1 Jam</button>
+        <button class="d-btn" data-mins="120" onclick="selectDuration(120, this)">2 Jam</button>
+        <button class="d-btn" data-mins="180" onclick="selectDuration(180, this)">3 Jam</button>
+        <button class="d-btn" data-mins="240" onclick="selectDuration(240, this)">4 Jam</button>
+      </div>
+
+      <div class="form-group" style="margin-top: 16px;">
+        <label style="font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">Atur durasi custom (menit)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="number" id="customDurationInput" class="form-control" min="1" step="15" placeholder="Contoh: 75">
+          <button type="button" class="btn btn-secondary" onclick="applyCustomDuration()">Terapkan</button>
+        </div>
+      </div>
+
+      <p style="font-size: 12px; color: #64748b; margin-bottom: 20px;">
+        <em>*Mode LOSS: Biaya dihitung per menit/detik proporsional sesuai lama main.</em>
+      </p>
+
+      <button class="btn btn-primary" style="width: 100%;" onclick="confirmStartRental()">Mulai Main Sekarang</button>
+    </div>
+  </div>
+
+  <!-- MODAL: ORDER ITEM MINUMAN / MAKANAN -->
+  <div class="modal-overlay" id="modalOrderItem">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="orderUnitTitle">Tambah Pesanan</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+
+      <div class="form-group">
+        <label>Filter Kategori</label>
+        <select id="orderCategoryFilter" class="form-control">
+          <option value="Semua">Semua</option>
+          <option value="Minuman">Minuman</option>
+          <option value="Makanan">Makanan</option>
+          <option value="Snack">Snack</option>
+        </select>
+      </div>
+
+      <div id="orderProductList" class="order-product-list" style="display: grid; gap: 10px; margin-bottom: 14px;"></div>
+
+      <button class="btn btn-success" style="width: 100%; margin-bottom: 14px;" onclick="addSelectedItemsToUnit()">+ Tambah Item Terpilih</button>
+
+      <div id="activeOrderList"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: SELESAI & BAYAR -->
+  <div class="modal-overlay" id="modalStopRental">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Pembayaran & Checkout</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+
+      <div class="receipt-box">
+        <div class="receipt-row">
+          <span>Unit:</span>
+          <strong id="receiptUnitName">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span>Durasi:</span>
+          <span id="receiptDuration">-</span>
+        </div>
+        <div class="receipt-row">
+          <span>Biaya Rental:</span>
+          <span id="receiptRentalCost">Rp 0</span>
+        </div>
+        <div class="receipt-row">
+          <span>Minuman & Makanan:</span>
+          <span id="receiptItemsCost">Rp 0</span>
+        </div>
+        <div class="receipt-row receipt-total">
+          <span>TOTAL TAGIHAN:</span>
+          <span id="receiptTotal">Rp 0</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Metode Pembayaran</label>
+        <select id="paymentMethodSelect" class="form-control">
+          <option value="Tunai">Tunai (Cash)</option>
+          <option value="QRIS">QRIS / Transfer Bank</option>
+        </select>
+      </div>
+
+      <button class="btn btn-success" style="width: 100%;" onclick="processPayment()">✔ Lunas & Selesai</button>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT PRODUK -->
+  <div class="modal-overlay" id="modalEditProduct">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Edit Item Makanan / Minuman</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+
+      <form onsubmit="saveProductEdit(event)">
+        <div class="form-group">
+          <label>Nama Item</label>
+          <input type="text" id="editProdName" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label>Kategori</label>
+          <select id="editProdCategory" class="form-control">
+            <option value="Minuman">Minuman</option>
+            <option value="Makanan">Makanan</option>
+            <option value="Snack">Snack</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Upload Gambar</label>
+          <input type="file" id="editProdImageUpload" class="form-control" accept="image/*">
+          <input type="hidden" id="editProdImage">
+          <div style="margin-top:12px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(148,163,184,0.35); border-radius:12px; min-height:120px; background: rgba(15,23,42,0.65);">
+            <img id="editProdImagePreview" src="assets/placeholder-product.svg" alt="Preview produk" style="width:110px; height:110px; object-fit:cover; border-radius:12px; display:block;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Harga Jual (Rp)</label>
+          <input type="number" id="editProdPrice" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label>Stok (opsional)</label>
+          <input type="number" id="editProdStock" class="form-control" placeholder="Kosong = tanpa stok">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Simpan Perubahan</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT UNIT PS -->
+  <div class="modal-overlay" id="modalEditUnit">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Edit Unit PS</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+
+      <form onsubmit="saveUnitEdit(event)">
+        <div class="form-group">
+          <label>Nama Unit</label>
+          <input type="text" id="editUnitName" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label>Jenis Unit</label>
+          <input type="text" id="editUnitType" class="form-control" readonly>
+        </div>
+        <div class="form-group">
+          <label>Upload Gambar Unit</label>
+          <input type="file" id="editUnitImageUpload" class="form-control" accept="image/*">
+          <input type="hidden" id="editUnitImage">
+          <div style="margin-top:12px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(148,163,184,0.35); border-radius:12px; min-height:120px; background: rgba(15,23,42,0.65);">
+            <img id="editUnitImagePreview" src="assets/placeholder-unit.svg" alt="Preview unit" style="width:110px; height:110px; object-fit:cover; border-radius:12px; display:block;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Tarif per Jam (Rp)</label>
+          <input type="number" id="editUnitRate" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Simpan Perubahan</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: LOGIN ADMIN -->
+  <div class="modal-overlay" id="modalAdminLogin">
+    <div class="modal-card" style="max-width: 360px;">
+      <div class="modal-header">
+        <h3>Login Admin</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+
+      <form onsubmit="submitAdminLogin(event)">
+        <div class="form-group">
+          <label>PIN Admin</label>
+          <input type="password" id="adminLoginPin" class="form-control" placeholder="Masukkan PIN" required>
+        </div>
+        <div id="adminLoginError" style="color:#dc2626; font-size:12px; margin-bottom:12px; min-height:16px;"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Masuk</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="unitWarningToast" class="unit-warning-toast" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

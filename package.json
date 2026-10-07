@@ -1,0 +1,8 @@
+{
+  "name": "aplikasi-kasir-rental-ps",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}
