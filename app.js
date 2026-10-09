@@ -209,9 +209,10 @@ function calculateCost(ratePerHour, elapsedSec, targetMinutes) {
 function formatTimer(elapsedSec, targetMinutes) {
   if (targetMinutes > 0) {
     const remaining = Math.max(0, (targetMinutes * 60) - elapsedSec);
-    const m = Math.floor(remaining / 60).toString().padStart(2, '0');
+    const h = Math.floor(remaining / 3600).toString().padStart(2, '0');
+    const m = Math.floor((remaining % 3600) / 60).toString().padStart(2, '0');
     const s = (remaining % 60).toString().padStart(2, '0');
-    return `Sisa ${m}:${s}`;
+    return `Sisa ${h}:${m}:${s}`;
   }
   const h = Math.floor(elapsedSec / 3600).toString().padStart(2, '0');
   const m = Math.floor((elapsedSec % 3600) / 60).toString().padStart(2, '0');
@@ -272,6 +273,12 @@ function renderUnits() {
     const isRunning = unit.status === 'running';
     const card = document.createElement('div');
     card.className = `unit-card ${isRunning ? 'running' : ''}`;
+    if (isRunning) {
+      card.addEventListener('click', event => {
+        if (event.target.closest('button')) return;
+        openRunningUnitDetails(unit.id);
+      });
+    }
 
     let elapsedSec = 0;
     let rentalCost = 0;
@@ -308,6 +315,7 @@ function renderUnits() {
           <div class="timer-val">${isRunning ? timerLabel : '00:00:00'}</div>
           <div class="cost-val">${isRunning ? formatRupiah(totalCurrentCost) : 'Siap Pakai'}</div>
           ${itemsCost > 0 ? `<div class="orders-tag">+ Minuman/Snack: ${formatRupiah(itemsCost)}</div>` : ''}
+          ${isRunning ? '<div class="unit-details-hint">Tekan kartu untuk rincian biaya</div>' : ''}
         </div>
       </div>
 
@@ -323,6 +331,72 @@ function renderUnits() {
 
     grid.appendChild(card);
   });
+}
+
+function openRunningUnitDetails(unitId) {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === unitId);
+  if (!unit || unit.status !== 'running') return;
+
+  const now = Date.now();
+  const elapsedSec = Math.floor((now - unit.startTime) / 1000);
+  const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
+  const items = unit.orderItems || [];
+  const itemsCost = items.reduce((total, item) => total + item.price * item.qty, 0);
+
+  document.getElementById('runningDetailsUnitName').textContent = unit.name;
+  const playMode = unit.targetMinutes > 0
+    ? `${unit.targetMinutes} Menit (Paket)`
+    : 'Mode LOSS';
+  document.getElementById('runningDetailsDuration').textContent =
+    `${formatRentalTimeRange(unit.startTime, now)} (Berjalan) • ${playMode} • ${formatTimer(elapsedSec, unit.targetMinutes)}`;
+  document.getElementById('runningDetailsUnitRate').textContent = `${formatRupiah(unit.ratePerHour)} / jam`;
+  document.getElementById('runningDetailsRentalCost').textContent = formatRupiah(rentalCost);
+  document.getElementById('runningDetailsItemsCost').textContent = formatRupiah(itemsCost);
+  document.getElementById('runningDetailsTotal').textContent = formatRupiah(rentalCost + itemsCost);
+
+  const itemsList = document.getElementById('runningDetailsItemsList');
+  itemsList.replaceChildren();
+  if (items.length === 0) {
+    const emptyMessage = document.createElement('p');
+    emptyMessage.className = 'receipt-items-empty';
+    emptyMessage.textContent = 'Belum ada menu yang diambil.';
+    itemsList.appendChild(emptyMessage);
+  } else {
+    items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'receipt-item';
+
+      const details = document.createElement('div');
+      details.className = 'receipt-item-details';
+      const name = document.createElement('strong');
+      name.textContent = item.name;
+      const quantity = document.createElement('span');
+      quantity.textContent = `${item.qty} x ${formatRupiah(item.price)}`;
+      details.append(name, quantity);
+
+      const subtotal = document.createElement('strong');
+      subtotal.textContent = formatRupiah(item.price * item.qty);
+      row.append(details, subtotal);
+      itemsList.appendChild(row);
+    });
+  }
+
+  document.getElementById('modalRunningDetails').classList.add('open');
+}
+
+function formatRentalTimeRange(startTime, endTime) {
+  const formatTime = timestamp => new Date(timestamp).toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+}
+
+function continueRunningUnitToPayment() {
+  const unitId = activeUnitId;
+  closeAllModals();
+  openStopModal(unitId);
 }
 
 // Modal Mulai
@@ -372,6 +446,17 @@ function applyCustomDuration() {
 }
 
 function confirmStartRental() {
+  const customInput = document.getElementById('customDurationInput');
+  const customValue = customInput ? customInput.value.trim() : '';
+  if (customValue) {
+    const customMinutes = Number(customValue);
+    if (!Number.isInteger(customMinutes) || customMinutes < 1) {
+      alert('Masukkan durasi custom minimal 1 menit.');
+      return;
+    }
+    chosenDurationMinutes = customMinutes;
+  }
+
   const db = getDB();
   const unit = db.units.find(u => u.id === activeUnitId);
   if (unit) {
@@ -403,11 +488,17 @@ function renderOrderProductList(filter = 'Semua') {
   listEl.innerHTML = products.map(product => {
     const stockValue = productStockValue(product);
     const stockText = stockValue === null ? 'Stok tak terbatas' : `Stok: ${stockValue}`;
+    const unit = db.units.find(item => item.id === activeUnitId);
+    const orderedItem = unit && (unit.orderItems || []).find(item => item.id === product.id);
+    const orderedQty = orderedItem ? orderedItem.qty : 0;
     return `
       <div class="order-product-item">
         <img class="order-product-thumb" src="${getProductImageUrl(product)}" alt="${product.name}">
         <div class="order-product-info">
-          <div class="order-product-name">${product.name}</div>
+          <div class="order-product-heading">
+            <div class="order-product-name">${product.name}</div>
+            <span class="order-product-taken">Diambil: ${orderedQty}</span>
+          </div>
           <div class="order-product-meta">${product.category} • ${formatRupiah(product.price)} • ${stockText}</div>
         </div>
         <div class="order-product-controls">
@@ -418,6 +509,21 @@ function renderOrderProductList(filter = 'Semua') {
       </div>
     `;
   }).join('');
+  listEl.querySelectorAll('.order-product-qty').forEach(input => {
+    input.addEventListener('input', updateSelectedOrderCount);
+  });
+  updateSelectedOrderCount();
+}
+
+function updateSelectedOrderCount() {
+  const selectedCount = Array.from(document.querySelectorAll('.order-product-qty'))
+    .reduce((total, input) => total + (parseInt(input.value, 10) || 0), 0);
+  const button = document.getElementById('addSelectedItemsButton');
+  if (!button) return;
+  button.disabled = selectedCount === 0;
+  button.textContent = selectedCount > 0
+    ? `+ Tambahkan ${selectedCount} Item`
+    : '+ Pilih Menu Terlebih Dahulu';
 }
 
 function adjustOrderQty(productId, delta) {
@@ -437,6 +543,7 @@ function adjustOrderQty(productId, delta) {
   }
 
   target.value = nextValue;
+  updateSelectedOrderCount();
 }
 
 function openOrderModal(unitId) {
@@ -456,28 +563,7 @@ function openOrderModal(unitId) {
   }
 
   renderOrderProductList('Semua');
-  renderActiveOrderItems(unit);
   document.getElementById('modalOrderItem').classList.add('open');
-}
-
-function renderActiveOrderItems(unit) {
-  const listEl = document.getElementById('activeOrderList');
-  if (!listEl) return;
-  const items = unit.orderItems || [];
-  if (items.length === 0) {
-    listEl.innerHTML = '<p style="color:#94a3b8; font-size:12px; margin-top:8px;">Belum ada pesanan tambahan.</p>';
-    return;
-  }
-
-  let html = '<div style="margin-top:10px; font-size:13px;"><strong>Pesanan Unit Ini:</strong>';
-  items.forEach((it, idx) => {
-    html += `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #f1f5f9;">
-      <span>${it.name} x${it.qty}</span>
-      <span>${formatRupiah(it.price * it.qty)}</span>
-    </div>`;
-  });
-  html += '</div>';
-  listEl.innerHTML = html;
 }
 
 function addSelectedItemsToUnit() {
@@ -536,9 +622,10 @@ function addSelectedItemsToUnit() {
   });
 
   saveDB(db);
-  renderActiveOrderItems(unit);
   renderUnits();
   document.querySelectorAll('.order-product-qty').forEach(input => { input.value = 0; });
+  const categoryFilter = document.getElementById('orderCategoryFilter');
+  renderOrderProductList(categoryFilter ? categoryFilter.value : 'Semua');
   alert(`${totalSelectedText.slice(0, -2)} berhasil ditambahkan ke ${unit.name}`);
 }
 
@@ -549,7 +636,8 @@ function openStopModal(unitId) {
   if (!unit) return;
 
   activeUnitId = unitId;
-  const elapsedSec = Math.floor((Date.now() - unit.startTime) / 1000);
+  const endTime = Date.now();
+  const elapsedSec = Math.floor((endTime - unit.startTime) / 1000);
   const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
@@ -564,11 +652,11 @@ function openStopModal(unitId) {
   }
 
   document.getElementById('receiptUnitName').textContent = unit.name;
-  document.getElementById('receiptDuration').textContent = durDesc;
+  document.getElementById('receiptDuration').textContent =
+    `${formatRentalTimeRange(unit.startTime, endTime)} • ${durDesc}`;
   document.getElementById('receiptRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('receiptItemsCost').textContent = formatRupiah(itemsCost);
   document.getElementById('receiptTotal').textContent = formatRupiah(grandTotal);
-
   document.getElementById('modalStopRental').classList.add('open');
 }
 
@@ -578,7 +666,8 @@ function processPayment() {
   if (!unit) return;
 
   const paymentMethod = document.getElementById('paymentMethodSelect').value;
-  const elapsedSec = Math.floor((Date.now() - unit.startTime) / 1000);
+  const endTime = Date.now();
+  const elapsedSec = Math.floor((endTime - unit.startTime) / 1000);
   const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
@@ -587,13 +676,15 @@ function processPayment() {
   let durDesc = unit.targetMinutes > 0 ? `${unit.targetMinutes} Menit` : `Mode LOSS (${Math.ceil(elapsedSec / 60)} mnt)`;
 
   // Add transaction to history
-  const now = new Date();
+  const now = new Date(endTime);
   const dateStr = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const trx = {
     id: 'TRX-' + Date.now().toString().slice(-6),
     date: dateStr,
     unitName: unit.name,
-    durationText: durDesc,
+    durationText: `${durDesc} • ${formatRentalTimeRange(unit.startTime, endTime)}`,
+    startTime: unit.startTime,
+    endTime: endTime,
     rentalCost: rentalCost,
     itemsCost: itemsCost,
     items: items,
@@ -1015,6 +1106,10 @@ setInterval(() => {
   if (currentActiveTab && currentActiveTab.id === 'tab-kasir') {
     checkNearFinishWarnings();
     renderUnits();
+    const runningDetailsModal = document.getElementById('modalRunningDetails');
+    if (runningDetailsModal && runningDetailsModal.classList.contains('open') && activeUnitId) {
+      openRunningUnitDetails(activeUnitId);
+    }
   }
 }, 1000);
 

@@ -228,6 +228,7 @@
         <button class="d-btn selected" data-mins="0" onclick="selectDuration(0, this)">LOSS</button>
         <button class="d-btn" data-mins="30" onclick="selectDuration(30, this)">30 Mnt</button>
         <button class="d-btn" data-mins="60" onclick="selectDuration(60, this)">1 Jam</button>
+        <button class="d-btn" data-mins="90" onclick="selectDuration(90, this)">1 Jam 30 Mnt</button>
         <button class="d-btn" data-mins="120" onclick="selectDuration(120, this)">2 Jam</button>
         <button class="d-btn" data-mins="180" onclick="selectDuration(180, this)">3 Jam</button>
         <button class="d-btn" data-mins="240" onclick="selectDuration(240, this)">4 Jam</button>
@@ -250,8 +251,8 @@
   </div>
 
   <!-- MODAL: ORDER ITEM MINUMAN / MAKANAN -->
-  <div class="modal-overlay" id="modalOrderItem">
-    <div class="modal-card">
+  <div class="modal-overlay" id="modalOrderItem" onclick="if (event.target === this) closeAllModals()">
+    <div class="modal-card order-modal-card">
       <div class="modal-header">
         <h3 id="orderUnitTitle">Tambah Pesanan</h3>
         <button class="close-btn" onclick="closeAllModals()">&times;</button>
@@ -267,11 +268,9 @@
         </select>
       </div>
 
-      <div id="orderProductList" class="order-product-list" style="display: grid; gap: 10px; margin-bottom: 14px;"></div>
+      <button id="addSelectedItemsButton" class="btn btn-success order-add-button" type="button" onclick="addSelectedItemsToUnit()" disabled>+ Pilih Menu Terlebih Dahulu</button>
 
-      <button class="btn btn-success" style="width: 100%; margin-bottom: 14px;" onclick="addSelectedItemsToUnit()">+ Tambah Item Terpilih</button>
-
-      <div id="activeOrderList"></div>
+      <div id="orderProductList" class="order-product-list"></div>
     </div>
   </div>
 
@@ -315,6 +314,46 @@
       </div>
 
       <button class="btn btn-success" style="width: 100%;" onclick="processPayment()">✔ Lunas & Selesai</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalRunningDetails" onclick="if (event.target === this) closeAllModals()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Rincian Biaya Berjalan</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+      <div class="receipt-box">
+        <div class="receipt-row">
+          <span>Unit:</span>
+          <strong id="runningDetailsUnitName">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span>Durasi:</span>
+          <span id="runningDetailsDuration">-</span>
+        </div>
+        <div class="receipt-row">
+          <span>Tarif PS:</span>
+          <span id="runningDetailsUnitRate">Rp 0 / jam</span>
+        </div>
+        <div class="receipt-row">
+          <span>Biaya Rental:</span>
+          <span id="runningDetailsRentalCost">Rp 0</span>
+        </div>
+        <div class="receipt-row">
+          <span>Menu:</span>
+          <span id="runningDetailsItemsCost">Rp 0</span>
+        </div>
+        <div class="receipt-items-section">
+          <strong>Menu yang Diambil</strong>
+          <div id="runningDetailsItemsList" class="receipt-items-list"></div>
+        </div>
+        <div class="receipt-row receipt-total">
+          <span>TOTAL SAAT INI:</span>
+          <span id="runningDetailsTotal">Rp 0</span>
+        </div>
+      </div>
+      <button class="btn btn-danger" style="width: 100%;" onclick="continueRunningUnitToPayment()">⏹ Selesai & Lanjut Pembayaran</button>
     </div>
   </div>
 
