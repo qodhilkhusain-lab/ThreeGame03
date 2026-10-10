@@ -73,9 +73,9 @@
         </div>
       </div>
 
-      <div style="margin-bottom: 16px; display: flex; flex-wrap:wrap; justify-content: flex-end; align-items: center; gap: 12px;">
-        <label for="historyFilterSelect" style="font-size: 13px; color: #475569; font-weight: 600;">Filter Riwayat:</label>
-        <select id="historyFilterSelect" class="form-control" style="max-width: 200px;" onchange="updateHistoryFilterControls()">
+      <div class="history-filter-controls">
+        <label for="historyFilterSelect" class="history-filter-label">Filter Riwayat:</label>
+        <select id="historyFilterSelect" class="form-control history-filter-select" onchange="updateHistoryFilterControls()">
           <option value="all">Semua Waktu</option>
           <option value="today">Hari Ini</option>
           <option value="week">Minggu Ini</option>
@@ -83,22 +83,58 @@
           <option value="year">Tahun Ini</option>
           <option value="range">Rentang Tanggal</option>
         </select>
-        <div id="historyDateRange" style="display:none; align-items:center; flex-wrap:wrap; gap:8px;">
-          <label for="historyStartDate" style="font-size:13px; color:#a5b4cf;">Dari</label>
-          <input type="date" id="historyStartDate" class="form-control" aria-label="Tanggal awal riwayat" onchange="renderHistory()" style="max-width:170px;">
-          <label for="historyEndDate" style="font-size:13px; color:#a5b4cf;">Sampai</label>
-          <input type="date" id="historyEndDate" class="form-control" aria-label="Tanggal akhir riwayat" onchange="renderHistory()" style="max-width:170px;">
+        <div id="historyDateRange" class="history-date-range">
+          <div class="history-date-field calendar-input-field">
+            <label for="historyStartDate">Dari</label>
+            <input type="date" id="historyStartDate" class="form-control history-date-input calendar-date-input" aria-label="Tanggal awal riwayat" onchange="renderHistory()">
+            <button type="button" class="calendar-picker-button" aria-label="Buka kalender tanggal awal" onclick="openDatePicker('historyStartDate')">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"/></svg>
+            </button>
+          </div>
+          <div class="history-date-field calendar-input-field">
+            <label for="historyEndDate">Sampai</label>
+            <input type="date" id="historyEndDate" class="form-control history-date-input calendar-date-input" aria-label="Tanggal akhir riwayat" onchange="renderHistory()">
+            <button type="button" class="calendar-picker-button" aria-label="Buka kalender tanggal akhir" onclick="openDatePicker('historyEndDate')">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
       <p id="historyFilterMessage" role="status" style="margin:-8px 0 12px; text-align:right; color:#fbbf24; font-size:12px;"></p>
+
+      <section class="attendant-shift-card" aria-labelledby="attendantShiftTitle">
+        <div class="attendant-shift-header">
+          <div>
+            <h3 id="attendantShiftTitle">Petugas yang Sedang Jaga</h3>
+            <p id="currentAttendantStatus" role="status">Belum ada petugas yang tercatat sedang jaga.</p>
+          </div>
+          <form class="attendant-shift-form" onsubmit="setAttendantShift(event)">
+            <label class="visually-hidden" for="attendantNameInput">Nama petugas</label>
+            <input type="text" id="attendantNameInput" class="form-control" maxlength="80" placeholder="Masukkan nama petugas" required>
+            <button type="submit" class="btn btn-primary">Mulai / Ganti Petugas</button>
+          </form>
+        </div>
+        <p class="attendant-shift-note">Pergantian nama menutup masa jaga sebelumnya. Omzet dihitung dari transaksi yang dibayar selama masa jaga.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Transaksi</th><th>Total Omzet</th></tr>
+            </thead>
+            <tbody id="attendantShiftTableBody"></tbody>
+          </table>
+        </div>
+      </section>
 
       <div class="cashflow-entry-grid">
         <div style="background:linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); padding:18px; border-radius:14px; border:1px solid rgba(212, 175, 55, 0.2);">
           <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Catat Pengeluaran</h3>
           <form onsubmit="addExpense(event)">
-            <div class="form-group">
+            <div class="form-group calendar-input-field">
               <label for="expenseDate">Tanggal</label>
-              <input type="date" id="expenseDate" class="form-control" required>
+              <input type="date" id="expenseDate" class="form-control calendar-date-input" required>
+              <button type="button" class="calendar-picker-button" aria-label="Buka kalender tanggal pengeluaran" onclick="openDatePicker('expenseDate')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"/></svg>
+              </button>
             </div>
             <div class="form-group">
               <label for="expenseCategory">Kategori</label>
@@ -135,6 +171,7 @@
             <tr>
               <th>ID Transaksi</th>
               <th>Waktu</th>
+              <th>Petugas</th>
               <th>Unit & Durasi</th>
               <th>Biaya Rental</th>
               <th>Minuman/Snack</th>
@@ -244,6 +281,25 @@
               </tr>
             </thead>
             <tbody id="adminProductTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Kelola Riwayat Jaga Petugas</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Nama Petugas</th>
+                <th>Mulai Jaga</th>
+                <th>Selesai Jaga</th>
+                <th>Transaksi</th>
+                <th>Total Omzet</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminAttendantShiftTableBody"></tbody>
           </table>
         </div>
       </div>

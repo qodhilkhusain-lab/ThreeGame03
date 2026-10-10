@@ -41,7 +41,8 @@ async function initDatabase() {
           { id: "p6", name: "Keripik / Snack Ringan", category: "Snack", price: 2000, stock: 40 }
         ],
         history: [],
-        expenses: []
+        expenses: [],
+        shifts: []
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultData));
     }
@@ -52,6 +53,7 @@ function getDB() {
   const str = localStorage.getItem(STORAGE_KEY);
   const db = str ? JSON.parse(str) : { units: [], products: [], history: [], expenses: [] };
   if (!Array.isArray(db.expenses)) db.expenses = [];
+  if (!Array.isArray(db.shifts)) db.shifts = [];
   return db;
 }
 
@@ -121,6 +123,7 @@ function activateTab(tabName) {
   if (tabName === 'admin') {
     renderAdminProducts();
     renderAdminUnits();
+    renderAdminAttendantShifts();
     renderAdminHistory();
     renderAdminExpenses();
   }
@@ -690,9 +693,12 @@ function processPayment() {
   // Add transaction to history
   const now = new Date(endTime);
   const dateStr = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  const activeShift = getActiveAttendantShift(db);
   const trx = {
     id: 'TRX-' + Date.now().toString().slice(-6),
     date: dateStr,
+    shiftId: activeShift ? activeShift.id : null,
+    attendantName: activeShift ? activeShift.staffName : '',
     unitName: unit.name,
     durationText: `${durDesc} • ${formatRentalTimeRange(unit.startTime, endTime)}`,
     startTime: unit.startTime,
@@ -720,6 +726,51 @@ function processPayment() {
 
 function closeAllModals() {
   document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
+}
+
+function getActiveAttendantShift(db) {
+  return db.shifts.find(shift => shift.endTime === null || shift.endTime === undefined) || null;
+}
+
+function setAttendantShift(event) {
+  event.preventDefault();
+  const input = document.getElementById('attendantNameInput');
+  const staffName = input ? input.value.trim() : '';
+  if (!staffName) {
+    alert('Nama petugas harus diisi.');
+    return;
+  }
+
+  const db = getDB();
+  const activeShift = getActiveAttendantShift(db);
+  if (activeShift && activeShift.staffName.trim().toLocaleLowerCase('id-ID') === staffName.toLocaleLowerCase('id-ID')) {
+    alert('Petugas tersebut sudah tercatat sedang jaga.');
+    return;
+  }
+
+  const now = Date.now();
+  if (activeShift) activeShift.endTime = now;
+  db.shifts.push({
+    id: `SHIFT-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    staffName,
+    startTime: now,
+    endTime: null
+  });
+  saveDB(db);
+
+  if (input) input.value = '';
+  renderHistory();
+}
+
+function formatAttendantShiftTime(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === '' || !Number.isFinite(Number(timestamp))) return '-';
+  return new Date(Number(timestamp)).toLocaleString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 // --- TAB 2: RIWAYAT & KEUANGAN ---
@@ -813,9 +864,21 @@ function updateHistoryFilterControls() {
   const filterSelect = document.getElementById('historyFilterSelect');
   const dateRange = document.getElementById('historyDateRange');
   if (filterSelect && dateRange) {
-    dateRange.style.display = filterSelect.value === 'range' ? 'flex' : 'none';
+    dateRange.style.display = filterSelect.value === 'range' ? 'grid' : 'none';
   }
   renderHistory();
+}
+
+function openDatePicker(inputId) {
+  const dateInput = document.getElementById(inputId);
+  if (!dateInput) return;
+
+  dateInput.focus();
+  if (typeof dateInput.showPicker === 'function') {
+    dateInput.showPicker();
+  } else {
+    dateInput.click();
+  }
 }
 
 function getFilteredHistory() {
@@ -837,11 +900,88 @@ function getFilteredHistory() {
   };
 }
 
+function renderAttendantShifts(shifts, history, filterKey, filterError) {
+  const db = getDB();
+  const activeShift = getActiveAttendantShift(db);
+  const currentStatus = document.getElementById('currentAttendantStatus');
+  const nameInput = document.getElementById('attendantNameInput');
+  const tbody = document.getElementById('attendantShiftTableBody');
+  if (!tbody) return;
+
+  if (currentStatus) {
+    currentStatus.textContent = activeShift
+      ? `${activeShift.staffName} — mulai jaga ${formatAttendantShiftTime(activeShift.startTime)}`
+      : 'Belum ada petugas yang tercatat sedang jaga.';
+  }
+  if (nameInput && activeShift && document.activeElement !== nameInput) {
+    nameInput.value = activeShift.staffName;
+  }
+
+  const totalsByShift = new Map();
+  const unassigned = { count: 0, total: 0 };
+  const knownShiftIds = new Set(shifts.map(shift => shift.id));
+  history.forEach(trx => {
+    const amount = Number(trx.totalCost) || 0;
+    const shiftTotal = knownShiftIds.has(trx.shiftId) ? totalsByShift.get(trx.shiftId) : null;
+    if (shiftTotal) {
+      shiftTotal.count += 1;
+      shiftTotal.total += amount;
+    } else if (knownShiftIds.has(trx.shiftId)) {
+      totalsByShift.set(trx.shiftId, { count: 1, total: amount });
+    } else {
+      unassigned.count += 1;
+      unassigned.total += amount;
+    }
+  });
+
+  const range = filterError ? null : getHistoryFilterDateRange(filterKey);
+  const visibleShifts = shifts.filter(shift => {
+    const startTime = Number(shift.startTime);
+    const endTime = shift.endTime === null || shift.endTime === undefined
+      ? Date.now()
+      : Number(shift.endTime);
+    const overlapsPeriod = !filterError && (filterKey === 'all' || !range || !range.start || !range.end
+      || (startTime <= range.end.getTime() && endTime >= range.start.getTime()));
+    return (activeShift && activeShift.id === shift.id) || overlapsPeriod || (!filterError && totalsByShift.has(shift.id));
+  }).sort((a, b) => Number(b.startTime) - Number(a.startTime));
+
+  tbody.innerHTML = '';
+  visibleShifts.forEach(shift => {
+    const totals = totalsByShift.get(shift.id) || { count: 0, total: 0 };
+    const isActive = activeShift && activeShift.id === shift.id;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>${escapeReportHtml(shift.staffName)}</strong>${isActive ? ' <span class="badge badge-running">Aktif</span>' : ''}</td>
+      <td>${escapeReportHtml(formatAttendantShiftTime(shift.startTime))}</td>
+      <td>${isActive ? 'Sedang jaga' : escapeReportHtml(formatAttendantShiftTime(shift.endTime))}</td>
+      <td>${totals.count}</td>
+      <td><strong>${formatRupiah(totals.total)}</strong></td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  if (unassigned.count > 0) {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>Petugas belum tercatat</strong></td>
+      <td>-</td>
+      <td>-</td>
+      <td>${unassigned.count}</td>
+      <td><strong>${formatRupiah(unassigned.total)}</strong></td>
+    `;
+    tbody.appendChild(row);
+  }
+
+  if (tbody.children.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada data masa jaga pada periode ini.</td></tr>';
+  }
+}
+
 function renderHistory() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
 
-  const { history: filteredHistory, expenses: filteredExpenses, filterError } = getFilteredHistory();
+  const { history: filteredHistory, expenses: filteredExpenses, filterKey, filterError } = getFilteredHistory();
   const filterMessage = document.getElementById('historyFilterMessage');
   if (filterMessage) filterMessage.textContent = filterError;
 
@@ -861,6 +1001,7 @@ function renderHistory() {
     row.innerHTML = `
       <td><strong>${trx.id}</strong></td>
       <td><strong>${trx.date}</strong></td>
+      <td>${escapeReportHtml(trx.attendantName || 'Belum tercatat')}</td>
       <td><strong>${trx.unitName}</strong><br><small>${trx.durationText}</small></td>
       <td>${formatRupiah(trx.rentalCost)}</td>
       <td>${formatRupiah(trx.itemsCost)}</td>
@@ -873,7 +1014,7 @@ function renderHistory() {
   if (filteredHistory.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" style="padding: 20px; text-align: center; color: #64748b;">
+        <td colspan="8" style="padding: 20px; text-align: center; color: #64748b;">
           Tidak ada transaksi untuk periode yang dipilih.
         </td>
       </tr>
@@ -886,6 +1027,7 @@ function renderHistory() {
   document.getElementById('statTotalTrx').textContent = filteredHistory.length;
   document.getElementById('statTotalExpense').textContent = formatRupiah(totalExpenses);
   document.getElementById('statNetCashflow').textContent = formatRupiah(totalOmset - totalExpenses);
+  renderAttendantShifts(getDB().shifts, filteredHistory, filterKey, filterError);
   renderExpenseHistory(filteredExpenses);
 }
 
@@ -1486,6 +1628,78 @@ function renderAdminHistory() {
     `;
     tbody.appendChild(row);
   });
+}
+
+function renderAdminAttendantShifts() {
+  const db = getDB();
+  const tbody = document.getElementById('adminAttendantShiftTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  db.shifts.forEach(shift => {
+    const transactions = db.history.filter(trx => trx.shiftId === shift.id);
+    const total = transactions.reduce((sum, trx) => sum + (Number(trx.totalCost) || 0), 0);
+    const isActive = getActiveAttendantShift(db)?.id === shift.id;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>${escapeReportHtml(shift.staffName)}</strong>${isActive ? ' <span class="badge badge-running">Aktif</span>' : ''}</td>
+      <td>${escapeReportHtml(formatAttendantShiftTime(shift.startTime))}</td>
+      <td>${isActive ? 'Sedang jaga' : escapeReportHtml(formatAttendantShiftTime(shift.endTime))}</td>
+      <td>${transactions.length}</td>
+      <td><strong>${formatRupiah(total)}</strong></td>
+      <td class="admin-action-cell">
+        <button class="btn btn-secondary" onclick="editAttendantShift('${escapeReportHtml(shift.id)}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteAttendantShift('${escapeReportHtml(shift.id)}')">Hapus</button>
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  if (db.shifts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada riwayat jaga petugas.</td></tr>';
+  }
+}
+
+function editAttendantShift(id) {
+  const db = getDB();
+  const shift = db.shifts.find(item => item.id === id);
+  if (!shift) return;
+
+  const staffName = window.prompt('Edit nama petugas:', shift.staffName);
+  if (staffName === null) return;
+  const trimmedName = staffName.trim();
+  if (!trimmedName) {
+    alert('Nama petugas tidak boleh kosong.');
+    return;
+  }
+
+  shift.staffName = trimmedName;
+  db.history.forEach(trx => {
+    if (trx.shiftId === id) trx.attendantName = trimmedName;
+  });
+  saveDB(db);
+  renderAdminAttendantShifts();
+  renderHistory();
+}
+
+function deleteAttendantShift(id) {
+  const db = getDB();
+  const shift = db.shifts.find(item => item.id === id);
+  if (!shift) return;
+
+  const linkedTransactions = db.history.filter(trx => trx.shiftId === id);
+  const confirmation = linkedTransactions.length > 0
+    ? `Hapus masa jaga ${shift.staffName}? Transaksi tetap disimpan dan akan dihitung sebagai petugas belum tercatat.`
+    : `Hapus masa jaga ${shift.staffName}?`;
+  if (!confirm(confirmation)) return;
+
+  db.history.forEach(trx => {
+    if (trx.shiftId === id) trx.shiftId = null;
+  });
+  db.shifts = db.shifts.filter(item => item.id !== id);
+  saveDB(db);
+  renderAdminAttendantShifts();
+  renderHistory();
 }
 
 function exportDatabaseJSON() {
