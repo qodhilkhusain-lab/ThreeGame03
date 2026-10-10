@@ -1141,6 +1141,34 @@ function getReportPeriodLabel(filterKey) {
   return `${startValue} sampai ${endValue}`;
 }
 
+function getAttendantShiftReportRows(history, shifts = getDB().shifts) {
+  const shiftsById = new Map(shifts.map(shift => [shift.id, shift]));
+  const totalsByShift = new Map();
+
+  history.forEach(trx => {
+    const shift = shiftsById.get(trx.shiftId);
+    const name = shift ? shift.staffName : (trx.attendantName || 'Petugas belum tercatat');
+    const key = shift ? shift.id : `legacy:${name}`;
+    const totals = totalsByShift.get(key) || {
+      name,
+      startTime: shift ? shift.startTime : null,
+      endTime: shift ? shift.endTime : null,
+      count: 0,
+      total: 0
+    };
+    totals.count += 1;
+    totals.total += Number(trx.totalCost) || 0;
+    totalsByShift.set(key, totals);
+  });
+
+  return Array.from(totalsByShift.values())
+    .sort((a, b) => {
+      if (a.startTime === null) return 1;
+      if (b.startTime === null) return -1;
+      return Number(b.startTime) - Number(a.startTime);
+    });
+}
+
 function escapeXml(value) {
   return String(value === null || value === undefined ? '' : value)
     .replace(/&/g, '&amp;')
@@ -1274,7 +1302,7 @@ function createZipBlob(files) {
   return zipBlob;
 }
 
-function createExcelReport(history, expenses, periodLabel) {
+function createExcelReport(history, expenses, periodLabel, shifts = getDB().shifts) {
   const sortedHistory = [...history].sort((a, b) => parseTransactionDate(a.date) - parseTransactionDate(b.date));
   const sortedExpenses = [...expenses].sort((a, b) => parseExpenseDate(a.date) - parseExpenseDate(b.date));
   const dates = new Map();
@@ -1320,7 +1348,8 @@ function createExcelReport(history, expenses, periodLabel) {
       numberCell(trx.rentalCost),
       numberCell(trx.itemsCost),
       numberCell(trx.totalCost),
-      textCell(trx.paymentMethod)
+      textCell(trx.paymentMethod),
+      textCell(trx.attendantName || shifts.find(shift => shift.id === trx.shiftId)?.staffName || 'Petugas belum tercatat')
     ];
   });
   const expenseRows = sortedExpenses.map(expense => {
@@ -1367,11 +1396,11 @@ function createExcelReport(history, expenses, periodLabel) {
     [textCell('TOTAL'), totalFormula(dataRows.length, 2), totalFormula(dataRows.length, 3), totalFormula(dataRows.length, 4)]
   ];
   const transactionSheetRows = [
-    headerRow(['ID Transaksi', 'Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'Unit', 'Durasi', 'Menu', 'Rental (Rp)', 'Menu (Rp)', 'Total Pemasukan (Rp)', 'Metode']),
+    headerRow(['ID Transaksi', 'Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'Unit', 'Durasi', 'Menu', 'Rental (Rp)', 'Menu (Rp)', 'Total Pemasukan (Rp)', 'Metode', 'Petugas']),
     ...transactionRows,
     [
       textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''),
-      totalFormula(transactionRows.length, 8), totalFormula(transactionRows.length, 9), totalFormula(transactionRows.length, 10), textCell('')
+      totalFormula(transactionRows.length, 8), totalFormula(transactionRows.length, 9), totalFormula(transactionRows.length, 10), textCell(''), textCell('')
     ]
   ];
   const expenseSheetRows = [
@@ -1426,11 +1455,35 @@ function createExcelReport(history, expenses, periodLabel) {
       textCell('')
     ]
   ];
+  const attendantShiftRows = getAttendantShiftReportRows(history, shifts).map(shift => [
+    textCell(shift.name),
+    shift.startTime !== null && shift.startTime !== undefined && shift.startTime !== ''
+      && Number.isFinite(Number(shift.startTime))
+      ? dateCell(new Date(Number(shift.startTime)))
+      : textCell('-'),
+    shift.endTime === null || shift.endTime === undefined
+      ? textCell('Sedang jaga')
+      : Number.isFinite(Number(shift.endTime)) ? dateCell(new Date(Number(shift.endTime))) : textCell('-'),
+    numberCell(shift.count),
+    numberCell(shift.total)
+  ]);
+  const attendantShiftSheetRows = [
+    headerRow(['Nama Petugas', 'Mulai Jaga', 'Selesai Jaga', 'Jumlah Transaksi', 'Total Omzet (Rp)']),
+    ...attendantShiftRows,
+    [
+      textCell('TOTAL'),
+      textCell(''),
+      textCell(''),
+      attendantShiftRows.length ? formulaCell(`SUM(D2:D${attendantShiftRows.length + 1})`) : numberCell(0),
+      attendantShiftRows.length ? formulaCell(`SUM(E2:E${attendantShiftRows.length + 1})`) : numberCell(0)
+    ]
+  ];
   const sheets = [
     { name: 'Rekap Utama', rows: mainReportRows, options: { widths: [22, 21, 18, 26, 38, 20, 20, 20, 22], merges: ['A1:I1', 'A2:I2', 'A4:I4', 'A12:I12'], autoFilter: `A13:I${Math.max(13, transactionRows.length + 13)}`, freezeRows: 2, rowHeights: { 1: 34, 2: 24, 3: 10, 4: 26, 11: 10, 12: 26 } } },
     { name: 'Rekap Harian', rows: summaryRows(['Tanggal', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], dailyDataRows), options: { widths: [20, 24, 24, 24] } },
     { name: 'Rekap Bulanan', rows: summaryRows(['Bulan', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], monthDataRows), options: { widths: [20, 24, 24, 24] } },
-    { name: 'Transaksi', rows: transactionSheetRows, options: { widths: [18, 22, 15, 12, 20, 28, 40, 18, 18, 22, 18], autoFilter: `A1:K${Math.max(1, transactionRows.length + 1)}` } },
+    { name: 'Rekap Shift', rows: attendantShiftSheetRows, options: { widths: [24, 22, 22, 20, 24], autoFilter: `A1:E${Math.max(1, attendantShiftRows.length + 1)}` } },
+    { name: 'Transaksi', rows: transactionSheetRows, options: { widths: [18, 22, 15, 12, 20, 28, 40, 18, 18, 22, 18, 24], autoFilter: `A1:L${Math.max(1, transactionRows.length + 1)}` } },
     { name: 'Pengeluaran', rows: expenseSheetRows, options: { widths: [18, 16, 16, 12, 24, 40, 22], autoFilter: `A1:G${Math.max(1, expenseRows.length + 1)}` } }
   ];
 
@@ -1509,6 +1562,8 @@ function exportHistoryReport(format) {
     alert(filterError);
     return;
   }
+  const shifts = getDB().shifts;
+  const attendantShiftRows = getAttendantShiftReportRows(history, shifts);
 
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const totals = history.reduce((sum, trx) => ({
@@ -1522,7 +1577,7 @@ function exportHistoryReport(format) {
   const now = new Date();
   const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   if (format === 'excel') {
-    const workbook = createExcelReport(history, expenses, getReportPeriodLabel(filterKey));
+    const workbook = createExcelReport(history, expenses, getReportPeriodLabel(filterKey), shifts);
     downloadReportFile(workbook, workbook.type, `rekap_keuangan_${fileDate}.xlsx`);
     return;
   }
@@ -1535,6 +1590,7 @@ function exportHistoryReport(format) {
       <tr>
         <td>${escapeReportHtml(trx.id)}</td>
         <td>${escapeReportHtml(trx.date)}</td>
+        <td>${escapeReportHtml(trx.attendantName || shifts.find(shift => shift.id === trx.shiftId)?.staffName || 'Petugas belum tercatat')}</td>
         <td>${escapeReportHtml(trx.unitName)}</td>
         <td>${escapeReportHtml(trx.durationText)}</td>
         <td>${escapeReportHtml(itemDetails || '-')}</td>
@@ -1544,6 +1600,15 @@ function exportHistoryReport(format) {
         <td>${escapeReportHtml(trx.paymentMethod)}</td>
       </tr>`;
   }).join('');
+  const attendantShiftTableRows = attendantShiftRows.map(shift => `
+    <tr>
+      <td>${escapeReportHtml(shift.name)}</td>
+      <td>${escapeReportHtml(shift.startTime !== null && shift.startTime !== undefined && shift.startTime !== ''
+        && Number.isFinite(Number(shift.startTime)) ? formatAttendantShiftTime(shift.startTime) : '-')}</td>
+      <td>${escapeReportHtml(shift.endTime === null || shift.endTime === undefined ? 'Sedang jaga' : formatAttendantShiftTime(shift.endTime))}</td>
+      <td>${shift.count}</td>
+      <td>Rp ${shift.total.toLocaleString('id-ID')}</td>
+    </tr>`).join('');
   const expenseRows = expenses.map(expense => `
     <tr>
       <td>${escapeReportHtml(expense.date)}</td>
@@ -1575,15 +1640,21 @@ function exportHistoryReport(format) {
         <p>Total Pengeluaran: Rp ${totals.expenses.toLocaleString('id-ID')}</p>
         <p><strong>Saldo Bersih: Rp ${totals.net.toLocaleString('id-ID')}</strong></p>
       </div>
+      <h2>Rekap Jaga Petugas</h2>
+      <table>
+        <thead><tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Jumlah Transaksi</th><th>Total Omzet</th></tr></thead>
+        <tbody>${attendantShiftTableRows || '<tr><td colspan="5">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
+        <tfoot><tr><th colspan="3">TOTAL</th><th>${attendantShiftRows.reduce((sum, shift) => sum + shift.count, 0)}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.total, 0).toLocaleString('id-ID')}</th></tr></tfoot>
+      </table>
       <table>
         <thead><tr>
-          <th>ID Transaksi</th><th>Waktu</th><th>Unit</th><th>Durasi</th>
+          <th>ID Transaksi</th><th>Waktu</th><th>Petugas</th><th>Unit</th><th>Durasi</th>
           <th>Menu yang Diambil</th><th>Biaya Rental (Rp)</th><th>Biaya Menu (Rp)</th>
           <th>Total Bayar (Rp)</th><th>Metode Pembayaran</th>
         </tr></thead>
-        <tbody>${transactionRows || '<tr><td colspan="9">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
+        <tbody>${transactionRows || '<tr><td colspan="10">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
         <tfoot><tr>
-          <th colspan="5">TOTAL</th><th>${totals.rental}</th><th>${totals.items}</th>
+          <th colspan="6">TOTAL</th><th>${totals.rental}</th><th>${totals.items}</th>
           <th>${totals.total}</th><th></th>
         </tr>        </tfoot>
       </table>
