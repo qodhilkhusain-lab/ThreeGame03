@@ -63,6 +63,14 @@
           <div class="label">Total Transaksi Selesai</div>
           <div class="value" id="statTotalTrx">0</div>
         </div>
+        <div class="stat-card amber">
+          <div class="label">Total Uang Keluar</div>
+          <div class="value" id="statTotalExpense">Rp 0</div>
+        </div>
+        <div class="stat-card green">
+          <div class="label">Saldo Bersih</div>
+          <div class="value" id="statNetCashflow">Rp 0</div>
+        </div>
       </div>
 
       <div style="margin-bottom: 16px; display: flex; flex-wrap:wrap; justify-content: flex-end; align-items: center; gap: 12px;">
@@ -83,6 +91,42 @@
         </div>
       </div>
       <p id="historyFilterMessage" role="status" style="margin:-8px 0 12px; text-align:right; color:#fbbf24; font-size:12px;"></p>
+
+      <div class="cashflow-entry-grid">
+        <div style="background:linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); padding:18px; border-radius:14px; border:1px solid rgba(212, 175, 55, 0.2);">
+          <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Catat Pengeluaran</h3>
+          <form onsubmit="addExpense(event)">
+            <div class="form-group">
+              <label for="expenseDate">Tanggal</label>
+              <input type="date" id="expenseDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label for="expenseCategory">Kategori</label>
+              <input type="text" id="expenseCategory" class="form-control" placeholder="Contoh: Belanja stok" required>
+            </div>
+            <div class="form-group">
+              <label for="expenseDescription">Keterangan</label>
+              <input type="text" id="expenseDescription" class="form-control" placeholder="Contoh: Belanja minuman">
+            </div>
+            <div class="form-group">
+              <label for="expenseAmount">Jumlah (Rp)</label>
+              <input type="number" id="expenseAmount" class="form-control" min="1" step="1" placeholder="Contoh: 50000" required>
+            </div>
+            <button type="submit" class="btn btn-danger" style="width:100%;">+ Simpan Pengeluaran</button>
+          </form>
+        </div>
+        <div>
+          <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Riwayat Pengeluaran</h3>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th>Jumlah</th></tr>
+              </thead>
+              <tbody id="expenseTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <!-- Tabel Riwayat Transaksi -->
       <div class="table-wrapper">
@@ -219,6 +263,24 @@
               </tr>
             </thead>
             <tbody id="adminHistoryTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Kelola Riwayat Pengeluaran</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Tanggal</th>
+                <th>Kategori</th>
+                <th>Keterangan</th>
+                <th>Jumlah</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminExpenseTableBody"></tbody>
           </table>
         </div>
       </div>

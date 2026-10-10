@@ -416,5 +416,14 @@
       "totalCost": 18,
       "paymentMethod": "Tunai"
     }
+  ],
+  "expenses": [
+    {
+      "id": "EXP-1791609452742",
+      "date": "2026-10-10",
+      "category": "bealnja",
+      "description": "makanan",
+      "amount": 5000
+    }
   ]
 }

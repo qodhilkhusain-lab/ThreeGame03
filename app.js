@@ -40,7 +40,8 @@ async function initDatabase() {
           { id: "p5", name: "Mie Instan + Telur", category: "Makanan", price: 10000, stock: 15 },
           { id: "p6", name: "Keripik / Snack Ringan", category: "Snack", price: 2000, stock: 40 }
         ],
-        history: []
+        history: [],
+        expenses: []
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultData));
     }
@@ -49,7 +50,9 @@ async function initDatabase() {
 
 function getDB() {
   const str = localStorage.getItem(STORAGE_KEY);
-  return str ? JSON.parse(str) : { units: [], products: [], history: [] };
+  const db = str ? JSON.parse(str) : { units: [], products: [], history: [], expenses: [] };
+  if (!Array.isArray(db.expenses)) db.expenses = [];
+  return db;
 }
 
 function saveDB(data) {
@@ -119,6 +122,7 @@ function activateTab(tabName) {
     renderAdminProducts();
     renderAdminUnits();
     renderAdminHistory();
+    renderAdminExpenses();
   }
 }
 
@@ -737,6 +741,13 @@ function parseTransactionDate(dateStr) {
   return Number.isNaN(parsed.getTime()) ? new Date(NaN) : parsed;
 }
 
+function parseExpenseDate(dateValue) {
+  if (!dateValue) return new Date(NaN);
+  const match = String(dateValue).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return new Date(NaN);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
 function getHistoryFilterDateRange(filterKey) {
   const today = new Date();
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -814,6 +825,13 @@ function getFilteredHistory() {
   const filterError = getHistoryFilterError(filterKey);
   return {
     history: filterError ? [] : db.history.filter(trx => matchesHistoryFilter(trx, filterKey)),
+    expenses: filterError ? [] : db.expenses.filter(expense => {
+      if (filterKey === 'all') return true;
+      const date = parseExpenseDate(expense.date);
+      if (Number.isNaN(date.getTime())) return false;
+      const range = getHistoryFilterDateRange(filterKey);
+      return !range.start || !range.end || (date >= range.start && date <= range.end);
+    }),
     filterKey,
     filterError
   };
@@ -823,7 +841,7 @@ function renderHistory() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
 
-  const { history: filteredHistory, filterError } = getFilteredHistory();
+  const { history: filteredHistory, expenses: filteredExpenses, filterError } = getFilteredHistory();
   const filterMessage = document.getElementById('historyFilterMessage');
   if (filterMessage) filterMessage.textContent = filterError;
 
@@ -832,6 +850,7 @@ function renderHistory() {
   let totalOmset = 0;
   let totalRental = 0;
   let totalFnb = 0;
+  const totalExpenses = filteredExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
 
   filteredHistory.forEach(trx => {
     totalOmset += trx.totalCost;
@@ -865,6 +884,91 @@ function renderHistory() {
   document.getElementById('statTotalRental').textContent = formatRupiah(totalRental);
   document.getElementById('statTotalFnb').textContent = formatRupiah(totalFnb);
   document.getElementById('statTotalTrx').textContent = filteredHistory.length;
+  document.getElementById('statTotalExpense').textContent = formatRupiah(totalExpenses);
+  document.getElementById('statNetCashflow').textContent = formatRupiah(totalOmset - totalExpenses);
+  renderExpenseHistory(filteredExpenses);
+}
+
+function renderExpenseHistory(expenses) {
+  const tbody = document.getElementById('expenseTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  expenses.forEach(expense => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${escapeReportHtml(expense.date)}</td>
+      <td>${escapeReportHtml(expense.category)}</td>
+      <td>${escapeReportHtml(expense.description || '-')}</td>
+      <td>${formatRupiah(expense.amount)}</td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  if (expenses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada pengeluaran pada periode ini.</td></tr>';
+  }
+}
+
+function renderAdminExpenses() {
+  const db = getDB();
+  const tbody = document.getElementById('adminExpenseTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  db.expenses.forEach(expense => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${escapeReportHtml(expense.date)}</td>
+      <td>${escapeReportHtml(expense.category)}</td>
+      <td>${escapeReportHtml(expense.description || '-')}</td>
+      <td>${formatRupiah(expense.amount)}</td>
+      <td><button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="deleteExpense('${escapeReportHtml(expense.id)}')">Hapus</button></td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  if (db.expenses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada catatan pengeluaran.</td></tr>';
+  }
+}
+
+function addExpense(event) {
+  event.preventDefault();
+  const date = document.getElementById('expenseDate').value;
+  const category = document.getElementById('expenseCategory').value.trim();
+  const description = document.getElementById('expenseDescription').value.trim();
+  const amount = Number(document.getElementById('expenseAmount').value);
+
+  if (!date || !category || !Number.isSafeInteger(amount) || amount <= 0) {
+    alert('Tanggal, kategori, dan jumlah pengeluaran harus diisi dengan benar.');
+    return;
+  }
+
+  const db = getDB();
+  db.expenses.unshift({
+    id: `EXP-${Date.now()}`,
+    date,
+    category,
+    description,
+    amount
+  });
+  saveDB(db);
+
+  document.getElementById('expenseCategory').value = '';
+  document.getElementById('expenseDescription').value = '';
+  document.getElementById('expenseAmount').value = '';
+  renderHistory();
+  renderAdminExpenses();
+}
+
+function deleteExpense(id) {
+  if (!confirm('Hapus catatan pengeluaran ini?')) return;
+  const db = getDB();
+  db.expenses = db.expenses.filter(expense => expense.id !== id);
+  saveDB(db);
+  renderHistory();
+  renderAdminExpenses();
 }
 
 function escapeReportHtml(value) {
@@ -895,18 +999,391 @@ function getReportPeriodLabel(filterKey) {
   return `${startValue} sampai ${endValue}`;
 }
 
+function escapeXml(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function excelColumnName(column) {
+  let name = '';
+  while (column > 0) {
+    const remainder = (column - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    column = Math.floor((column - 1) / 26);
+  }
+  return name;
+}
+
+function excelDateSerial(date) {
+  const localDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return (localDate.getTime() - new Date(1899, 11, 30).getTime()) / 86400000
+    + (date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds()) / 86400;
+}
+
+function excelXmlCell(cell, rowIndex, columnIndex) {
+  const reference = `${excelColumnName(columnIndex + 1)}${rowIndex + 1}`;
+  const style = cell.style ? ` s="${cell.style}"` : '';
+  if (cell.formula) {
+    return `<c r="${reference}"${style}><f>${escapeXml(cell.formula)}</f><v>0</v></c>`;
+  }
+  if (cell.type === 'number') {
+    return `<c r="${reference}"${style}><v>${Number(cell.value) || 0}</v></c>`;
+  }
+  return `<c r="${reference}"${style} t="inlineStr"><is><t xml:space="preserve">${escapeXml(cell.value)}</t></is></c>`;
+}
+
+function excelXmlSheet(rows, options = {}) {
+  const sheetRows = rows.map((row, rowIndex) =>
+    `<row r="${rowIndex + 1}"${options.rowHeights && options.rowHeights[rowIndex + 1] ? ` ht="${options.rowHeights[rowIndex + 1]}" customHeight="1"` : ''}>${row.map((cell, columnIndex) => excelXmlCell(cell, rowIndex, columnIndex)).join('')}</row>`
+  ).join('');
+  const columns = options.widths
+    ? `<cols>${options.widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>`
+    : '';
+  const merges = options.merges && options.merges.length
+    ? `<mergeCells count="${options.merges.length}">${options.merges.map(reference => `<mergeCell ref="${reference}"/>`).join('')}</mergeCells>`
+    : '';
+  const autoFilter = options.autoFilter
+    ? `<autoFilter ref="${options.autoFilter}"/>`
+    : '';
+  const freezeRows = Number.isInteger(options.freezeRows) ? options.freezeRows : 1;
+  const sheetView = freezeRows > 0
+    ? `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${freezeRows}" topLeftCell="A${freezeRows + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
+    : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      ${sheetView}<sheetFormatPr defaultRowHeight="20"/>${columns}<sheetData>${sheetRows}</sheetData>${autoFilter}${merges}
+    </worksheet>`;
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc ^= bytes[index];
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let localOffset = 0;
+
+  files.forEach(file => {
+    const name = encoder.encode(file.name);
+    const content = encoder.encode(file.content);
+    const checksum = crc32(content);
+    const localHeader = new Uint8Array(30 + name.length);
+    const localView = new DataView(localHeader.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint32(14, checksum, true);
+    localView.setUint32(18, content.length, true);
+    localView.setUint32(22, content.length, true);
+    localView.setUint16(26, name.length, true);
+    localHeader.set(name, 30);
+    localParts.push(localHeader, content);
+
+    const centralHeader = new Uint8Array(46 + name.length);
+    const centralView = new DataView(centralHeader.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint32(16, checksum, true);
+    centralView.setUint32(20, content.length, true);
+    centralView.setUint32(24, content.length, true);
+    centralView.setUint16(28, name.length, true);
+    centralView.setUint32(42, localOffset, true);
+    centralHeader.set(name, 46);
+    centralParts.push(centralHeader);
+
+    localOffset += localHeader.length + content.length;
+  });
+
+  const centralDirectory = new Uint8Array(centralParts.reduce((total, part) => total + part.length, 0));
+  let centralOffset = 0;
+  centralParts.forEach(part => {
+    centralDirectory.set(part, centralOffset);
+    centralOffset += part.length;
+  });
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralDirectory.length, true);
+  endView.setUint32(16, localOffset, true);
+
+  const zipParts = [...localParts, centralDirectory, endRecord];
+  const zipBlob = new Blob(zipParts, {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  return zipBlob;
+}
+
+function createExcelReport(history, expenses, periodLabel) {
+  const sortedHistory = [...history].sort((a, b) => parseTransactionDate(a.date) - parseTransactionDate(b.date));
+  const sortedExpenses = [...expenses].sort((a, b) => parseExpenseDate(a.date) - parseExpenseDate(b.date));
+  const dates = new Map();
+  const months = new Map();
+
+  sortedHistory.forEach(trx => {
+    const date = parseTransactionDate(trx.date);
+    if (Number.isNaN(date.getTime())) return;
+    const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    dates.set(dayKey, date);
+    months.set(dayKey.slice(0, 7), true);
+  });
+  sortedExpenses.forEach(expense => {
+    const date = parseExpenseDate(expense.date);
+    if (Number.isNaN(date.getTime())) return;
+    dates.set(expense.date, date);
+    months.set(expense.date.slice(0, 7), true);
+  });
+
+  const textCell = value => ({ value: value === null || value === undefined ? '' : String(value), type: 'string' });
+  const numberCell = (value, style = 2) => ({ value: Number(value) || 0, type: 'number', style });
+  const formulaCell = formula => ({ value: 0, type: 'number', style: 2, formula });
+  const dateCell = (date, includeTime = true) => ({
+    value: excelDateSerial(date),
+    type: 'number',
+    style: includeTime ? 1 : 4
+  });
+  const headerRow = labels => labels.map(label => ({ ...textCell(label), style: 3 }));
+
+  const transactionRows = sortedHistory.map(trx => {
+    const date = parseTransactionDate(trx.date);
+    const dayKey = Number.isNaN(date.getTime())
+      ? ''
+      : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return [
+      textCell(trx.id),
+      Number.isNaN(date.getTime()) ? textCell(trx.date) : dateCell(date),
+      Number.isNaN(date.getTime()) ? textCell('') : dateCell(date, false),
+      textCell(dayKey ? dayKey.slice(0, 7) : ''),
+      textCell(trx.unitName),
+      textCell(trx.durationText),
+      textCell((trx.items || []).map(item => `${item.name} x${item.qty}`).join(', ')),
+      numberCell(trx.rentalCost),
+      numberCell(trx.itemsCost),
+      numberCell(trx.totalCost),
+      textCell(trx.paymentMethod)
+    ];
+  });
+  const expenseRows = sortedExpenses.map(expense => {
+    const date = parseExpenseDate(expense.date);
+    const dayKey = Number.isNaN(date.getTime()) ? '' : expense.date;
+    return [
+      textCell(expense.id),
+      dayKey ? dateCell(date, false) : textCell(expense.date),
+      dayKey ? dateCell(date, false) : textCell(''),
+      textCell(dayKey ? dayKey.slice(0, 7) : ''),
+      textCell(expense.category),
+      textCell(expense.description),
+      numberCell(expense.amount)
+    ];
+  });
+
+  const transactionEnd = Math.max(2, transactionRows.length + 1);
+  const expenseEnd = Math.max(2, expenseRows.length + 1);
+  const dailyRows = Array.from(dates.keys()).sort().map(dayKey => ({ dayKey, date: dates.get(dayKey) }));
+  const dailyDataRows = dailyRows.map((item, index) => {
+    const rowNumber = index + 2;
+    return [
+      dateCell(item.date, false),
+      formulaCell(`SUMIF(Transaksi!$C$2:$C$${transactionEnd},$A${rowNumber},Transaksi!$J$2:$J$${transactionEnd})`),
+      formulaCell(`SUMIF(Pengeluaran!$C$2:$C$${expenseEnd},$A${rowNumber},Pengeluaran!$G$2:$G$${expenseEnd})`),
+      formulaCell(`B${rowNumber}-C${rowNumber}`)
+    ];
+  });
+  const monthDataRows = Array.from(months.keys()).sort().map((monthKey, index) => {
+    const rowNumber = index + 2;
+    return [
+      textCell(monthKey),
+      formulaCell(`SUMIF(Transaksi!$D$2:$D$${transactionEnd},$A${rowNumber},Transaksi!$J$2:$J$${transactionEnd})`),
+      formulaCell(`SUMIF(Pengeluaran!$D$2:$D$${expenseEnd},$A${rowNumber},Pengeluaran!$G$2:$G$${expenseEnd})`),
+      formulaCell(`B${rowNumber}-C${rowNumber}`)
+    ];
+  });
+  const totalFormula = (rowCount, column) => rowCount > 0
+    ? formulaCell(`SUM(${excelColumnName(column)}2:${excelColumnName(column)}${rowCount + 1})`)
+    : numberCell(0);
+  const summaryRows = (headers, dataRows) => [
+    headerRow(headers),
+    ...dataRows,
+    [textCell('TOTAL'), totalFormula(dataRows.length, 2), totalFormula(dataRows.length, 3), totalFormula(dataRows.length, 4)]
+  ];
+  const transactionSheetRows = [
+    headerRow(['ID Transaksi', 'Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'Unit', 'Durasi', 'Menu', 'Rental (Rp)', 'Menu (Rp)', 'Total Pemasukan (Rp)', 'Metode']),
+    ...transactionRows,
+    [
+      textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''),
+      totalFormula(transactionRows.length, 8), totalFormula(transactionRows.length, 9), totalFormula(transactionRows.length, 10), textCell('')
+    ]
+  ];
+  const expenseSheetRows = [
+    headerRow(['ID Pengeluaran', 'Tanggal', 'Tanggal Rekap', 'Bulan Rekap', 'Kategori', 'Keterangan', 'Jumlah Keluar (Rp)']),
+    ...expenseRows,
+    [textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''), totalFormula(expenseRows.length, 7)]
+  ];
+  const reportHeader = labels => labels.map(label => ({ ...textCell(label), style: 3 }));
+  const reportSection = label => [{ ...textCell(label), style: 7 }, ...Array.from({ length: 8 }, () => textCell(''))];
+  const reportTitleRow = [
+    { ...textCell('REKAP LAPORAN KEUANGAN'), style: 5 },
+    ...Array.from({ length: 8 }, () => textCell(''))
+  ];
+  const reportSubtitleRow = [
+    { ...textCell(`Periode: ${periodLabel}`), style: 6 },
+    ...Array.from({ length: 8 }, () => textCell(''))
+  ];
+  const mainReportRows = [
+    reportTitleRow,
+    reportSubtitleRow,
+    Array.from({ length: 9 }, () => textCell('')),
+    reportSection('RINGKASAN PEMASUKAN & PENGELUARAN'),
+    reportHeader(['Keterangan', 'Jumlah (Rp)', '', '', '', '', '', '', '']),
+    [{ ...textCell('Pendapatan Rental PS'), style: 8 }, formulaCell(`SUM(Transaksi!$H$2:$H$${transactionEnd})`)],
+    [{ ...textCell('Pendapatan Menu'), style: 8 }, formulaCell(`SUM(Transaksi!$I$2:$I$${transactionEnd})`)],
+    [{ ...textCell('Total Pemasukan'), style: 8 }, formulaCell('B6+B7')],
+    [{ ...textCell('Total Pengeluaran'), style: 8 }, formulaCell(`SUM(Pengeluaran!$G$2:$G$${expenseEnd})`)],
+    [{ ...textCell('Saldo Bersih'), style: 9 }, { ...formulaCell('B8-B9'), style: 9 }],
+    Array.from({ length: 9 }, () => textCell('')),
+    reportSection('RINCIAN TRANSAKSI'),
+    reportHeader(['ID Transaksi', 'Waktu', 'Unit', 'Durasi', 'Menu yang Diambil', 'Biaya Rental (Rp)', 'Biaya Menu (Rp)', 'Total Bayar (Rp)', 'Metode Pembayaran']),
+    ...sortedHistory.map(trx => {
+      const date = parseTransactionDate(trx.date);
+      return [
+        textCell(trx.id),
+        Number.isNaN(date.getTime()) ? textCell(trx.date) : dateCell(date),
+        textCell(trx.unitName),
+        textCell(trx.durationText),
+        textCell((trx.items || []).map(item => `${item.name} x${item.qty}`).join(', ') || '-'),
+        numberCell(trx.rentalCost),
+        numberCell(trx.itemsCost),
+        numberCell(trx.totalCost),
+        textCell(trx.paymentMethod)
+      ];
+    }),
+    [
+      { ...textCell('TOTAL'), style: 9 },
+      ...Array.from({ length: 4 }, () => textCell('')),
+      { ...totalFormula(transactionRows.length, 8), style: 9 },
+      { ...totalFormula(transactionRows.length, 9), style: 9 },
+      { ...totalFormula(transactionRows.length, 10), style: 9 },
+      textCell('')
+    ]
+  ];
+  const sheets = [
+    { name: 'Rekap Utama', rows: mainReportRows, options: { widths: [22, 21, 18, 26, 38, 20, 20, 20, 22], merges: ['A1:I1', 'A2:I2', 'A4:I4', 'A12:I12'], autoFilter: `A13:I${Math.max(13, transactionRows.length + 13)}`, freezeRows: 2, rowHeights: { 1: 34, 2: 24, 3: 10, 4: 26, 11: 10, 12: 26 } } },
+    { name: 'Rekap Harian', rows: summaryRows(['Tanggal', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], dailyDataRows), options: { widths: [20, 24, 24, 24] } },
+    { name: 'Rekap Bulanan', rows: summaryRows(['Bulan', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], monthDataRows), options: { widths: [20, 24, 24, 24] } },
+    { name: 'Transaksi', rows: transactionSheetRows, options: { widths: [18, 22, 15, 12, 20, 28, 40, 18, 18, 22, 18], autoFilter: `A1:K${Math.max(1, transactionRows.length + 1)}` } },
+    { name: 'Pengeluaran', rows: expenseSheetRows, options: { widths: [18, 16, 16, 12, 24, 40, 22], autoFilter: `A1:G${Math.max(1, expenseRows.length + 1)}` } }
+  ];
+
+  const sheetReferences = sheets.map((sheet, index) =>
+    `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`
+  ).join('');
+  const worksheetFiles = sheets.map((sheet, index) => ({
+    name: `xl/worksheets/sheet${index + 1}.xml`,
+    content: excelXmlSheet(sheet.rows, sheet.options)
+  }));
+  const workbookFiles = [
+    {
+      name: '[Content_Types].xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+          <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+          <Default Extension="xml" ContentType="application/xml"/>
+          <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+          <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+          ${sheets.map((sheet, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+        </Types>`
+    },
+    {
+      name: '_rels/.rels',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+        </Relationships>`
+    },
+    {
+      name: 'xl/workbook.xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <sheets>${sheetReferences}</sheets><calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>
+        </workbook>`
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          ${sheets.map((sheet, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}
+          <Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+        </Relationships>`
+    },
+    {
+      name: 'xl/styles.xml',
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;Rp&quot; #,##0;[Red]-&quot;Rp&quot; #,##0"/><numFmt numFmtId="165" formatCode="dd/mm/yyyy hh:mm"/><numFmt numFmtId="166" formatCode="dd/mm/yyyy"/></numFmts>
+          <fonts count="5"><font><sz val="10"/><color rgb="FF1E293B"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><i/><sz val="10"/><color rgb="FF64748B"/><name val="Arial"/></font><font><b/><sz val="11"/><color rgb="FF0F172A"/><name val="Arial"/></font></fonts>
+          <fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD4AF37"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF7D6"/><bgColor indexed="64"/></patternFill></fill></fills>
+          <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border></borders>
+          <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+          <cellXfs count="10"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="1" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="166" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="1" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="164" fontId="4" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs>
+          <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+        </styleSheet>`
+    },
+    ...worksheetFiles
+  ];
+  return createZipBlob(workbookFiles);
+}
+
+function downloadReportFile(content, mimeType, fileName) {
+  const blob = content instanceof Blob ? content : new Blob(['\ufeff', content], { type: mimeType });
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
 function exportHistoryReport(format) {
-  const { history, filterKey, filterError } = getFilteredHistory();
+  const { history, expenses, filterKey, filterError } = getFilteredHistory();
   if (filterError) {
     alert(filterError);
     return;
   }
 
+  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const totals = history.reduce((sum, trx) => ({
     rental: sum.rental + Number(trx.rentalCost || 0),
     items: sum.items + Number(trx.itemsCost || 0),
     total: sum.total + Number(trx.totalCost || 0)
   }), { rental: 0, items: 0, total: 0 });
+  totals.expenses = expenseTotal;
+  totals.net = totals.total - expenseTotal;
+
+  const now = new Date();
+  const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (format === 'excel') {
+    const workbook = createExcelReport(history, expenses, getReportPeriodLabel(filterKey));
+    downloadReportFile(workbook, workbook.type, `rekap_keuangan_${fileDate}.xlsx`);
+    return;
+  }
 
   const transactionRows = history.map(trx => {
     const itemDetails = (trx.items || [])
@@ -925,6 +1402,13 @@ function exportHistoryReport(format) {
         <td>${escapeReportHtml(trx.paymentMethod)}</td>
       </tr>`;
   }).join('');
+  const expenseRows = expenses.map(expense => `
+    <tr>
+      <td>${escapeReportHtml(expense.date)}</td>
+      <td>${escapeReportHtml(expense.category)}</td>
+      <td>${escapeReportHtml(expense.description || '-')}</td>
+      <td>Rp ${Number(expense.amount || 0).toLocaleString('id-ID')}</td>
+    </tr>`).join('');
 
   const title = `Rekap Riwayat Transaksi - ${getReportPeriodLabel(filterKey)}`;
   const documentHtml = `<!DOCTYPE html>
@@ -946,6 +1430,8 @@ function exportHistoryReport(format) {
         <p>Pendapatan Rental PS: Rp ${totals.rental.toLocaleString('id-ID')}</p>
         <p>Pendapatan Menu: Rp ${totals.items.toLocaleString('id-ID')}</p>
         <p><strong>Total Omset: Rp ${totals.total.toLocaleString('id-ID')}</strong></p>
+        <p>Total Pengeluaran: Rp ${totals.expenses.toLocaleString('id-ID')}</p>
+        <p><strong>Saldo Bersih: Rp ${totals.net.toLocaleString('id-ID')}</strong></p>
       </div>
       <table>
         <thead><tr>
@@ -957,23 +1443,17 @@ function exportHistoryReport(format) {
         <tfoot><tr>
           <th colspan="5">TOTAL</th><th>${totals.rental}</th><th>${totals.items}</th>
           <th>${totals.total}</th><th></th>
-        </tr></tfoot>
+        </tr>        </tfoot>
+      </table>
+      <h2>Pengeluaran</h2>
+      <table>
+        <thead><tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th>Jumlah Keluar</th></tr></thead>
+        <tbody>${expenseRows || '<tr><td colspan="4">Tidak ada pengeluaran pada periode ini.</td></tr>'}</tbody>
+        <tfoot><tr><th colspan="3">TOTAL PENGELUARAN</th><th>Rp ${totals.expenses.toLocaleString('id-ID')}</th></tr></tfoot>
       </table>
     </body></html>`;
 
-  const isExcel = format === 'excel';
-  const extension = isExcel ? 'xls' : 'doc';
-  const mimeType = isExcel ? 'application/vnd.ms-excel;charset=utf-8' : 'application/msword;charset=utf-8';
-  const now = new Date();
-  const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const fileName = `rekap_riwayat_${fileDate}.${extension}`;
-  const blob = new Blob(['\ufeff', documentHtml], { type: mimeType });
-  const downloadUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = downloadUrl;
-  link.download = fileName;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+  downloadReportFile(documentHtml, 'application/msword;charset=utf-8', `rekap_riwayat_${fileDate}.doc`);
 }
 
 function deleteHistoryTransaction(id) {
@@ -1281,5 +1761,10 @@ setInterval(() => {
 window.addEventListener('DOMContentLoaded', async () => {
   await initDatabase();
   bindProductImageUpload();
+  const expenseDate = document.getElementById('expenseDate');
+  if (expenseDate) {
+    const today = new Date();
+    expenseDate.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
   switchTab('kasir');
 });
