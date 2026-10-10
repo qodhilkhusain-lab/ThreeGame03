@@ -36,9 +36,13 @@
 
     <!-- TAB 2: RIWAYAT & KEUANGAN -->
     <section id="tab-riwayat" class="tab-content">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+      <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom: 20px;">
         <h2>Laporan & Riwayat Keuangan</h2>
-        <button class="btn btn-secondary" style="max-width: 180px;" onclick="exportDatabaseJSON()">📥 Download DB (.JSON)</button>
+        <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px;">
+          <button class="btn btn-success" style="max-width: 150px;" onclick="exportHistoryReport('excel')">📊 Rekap Excel</button>
+          <button class="btn btn-primary" style="max-width: 150px;" onclick="exportHistoryReport('word')">📝 Rekap Word</button>
+          <button class="btn btn-secondary" style="max-width: 180px;" onclick="exportDatabaseJSON()">📥 Download DB (.JSON)</button>
+        </div>
       </div>
 
       <!-- Ringkasan Keuangan -->
@@ -61,16 +65,24 @@
         </div>
       </div>
 
-      <div style="margin-bottom: 16px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+      <div style="margin-bottom: 16px; display: flex; flex-wrap:wrap; justify-content: flex-end; align-items: center; gap: 12px;">
         <label for="historyFilterSelect" style="font-size: 13px; color: #475569; font-weight: 600;">Filter Riwayat:</label>
-        <select id="historyFilterSelect" class="form-control" style="max-width: 200px;" onchange="renderHistory()">
+        <select id="historyFilterSelect" class="form-control" style="max-width: 200px;" onchange="updateHistoryFilterControls()">
           <option value="all">Semua Waktu</option>
           <option value="today">Hari Ini</option>
           <option value="week">Minggu Ini</option>
           <option value="month">Bulan Ini</option>
           <option value="year">Tahun Ini</option>
+          <option value="range">Rentang Tanggal</option>
         </select>
+        <div id="historyDateRange" style="display:none; align-items:center; flex-wrap:wrap; gap:8px;">
+          <label for="historyStartDate" style="font-size:13px; color:#a5b4cf;">Dari</label>
+          <input type="date" id="historyStartDate" class="form-control" aria-label="Tanggal awal riwayat" onchange="renderHistory()" style="max-width:170px;">
+          <label for="historyEndDate" style="font-size:13px; color:#a5b4cf;">Sampai</label>
+          <input type="date" id="historyEndDate" class="form-control" aria-label="Tanggal akhir riwayat" onchange="renderHistory()" style="max-width:170px;">
+        </div>
       </div>
+      <p id="historyFilterMessage" role="status" style="margin:-8px 0 12px; text-align:right; color:#fbbf24; font-size:12px;"></p>
 
       <!-- Tabel Riwayat Transaksi -->
       <div class="table-wrapper">
@@ -353,6 +365,7 @@
           <span id="runningDetailsTotal">Rp 0</span>
         </div>
       </div>
+      <button class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="addMenuFromRunningDetails()">➕ Tambah Menu</button>
       <button class="btn btn-danger" style="width: 100%;" onclick="continueRunningUnitToPayment()">⏹ Selesai & Lanjut Pembayaran</button>
     </div>
   </div>

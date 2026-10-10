@@ -338,6 +338,8 @@ function openRunningUnitDetails(unitId) {
   const unit = db.units.find(item => item.id === unitId);
   if (!unit || unit.status !== 'running') return;
 
+  activeUnitId = unitId;
+
   const now = Date.now();
   const elapsedSec = Math.floor((now - unit.startTime) / 1000);
   const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
@@ -391,6 +393,12 @@ function formatRentalTimeRange(startTime, endTime) {
     minute: '2-digit'
   });
   return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+}
+
+function addMenuFromRunningDetails() {
+  if (!activeUnitId) return;
+  closeAllModals();
+  openOrderModal(activeUnitId);
 }
 
 function continueRunningUnitToPayment() {
@@ -748,14 +756,41 @@ function getHistoryFilterDateRange(filterKey) {
     year: { start: startOfYear, end: new Date(today.getTime()) }
   };
 
+  if (filterKey === 'range') {
+    const startInput = document.getElementById('historyStartDate');
+    const endInput = document.getElementById('historyEndDate');
+    const startValue = startInput ? startInput.value : '';
+    const endValue = endInput ? endInput.value : '';
+    if (!startValue || !endValue) return { start: null, end: null };
+
+    const [startYear, startMonth, startDay] = startValue.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endValue.split('-').map(Number);
+    return {
+      start: new Date(startYear, startMonth - 1, startDay),
+      end: new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999)
+    };
+  }
+
   return ranges[filterKey] || { start: null, end: null };
+}
+
+function getHistoryFilterError(filterKey) {
+  if (filterKey !== 'range') return '';
+
+  const startInput = document.getElementById('historyStartDate');
+  const endInput = document.getElementById('historyEndDate');
+  const startValue = startInput ? startInput.value : '';
+  const endValue = endInput ? endInput.value : '';
+  if (!startValue || !endValue) return 'Pilih tanggal awal dan tanggal akhir untuk melihat rekap.';
+  if (startValue > endValue) return 'Tanggal awal tidak boleh melewati tanggal akhir.';
+  return '';
 }
 
 function matchesHistoryFilter(trx, filterKey) {
   if (!filterKey || filterKey === 'all') return true;
 
   const date = parseTransactionDate(trx.date);
-  if (Number.isNaN(date.getTime())) return true;
+  if (Number.isNaN(date.getTime())) return false;
 
   const range = getHistoryFilterDateRange(filterKey);
   if (!range.start || !range.end) return true;
@@ -763,14 +798,34 @@ function matchesHistoryFilter(trx, filterKey) {
   return date >= range.start && date <= range.end;
 }
 
-function renderHistory() {
+function updateHistoryFilterControls() {
+  const filterSelect = document.getElementById('historyFilterSelect');
+  const dateRange = document.getElementById('historyDateRange');
+  if (filterSelect && dateRange) {
+    dateRange.style.display = filterSelect.value === 'range' ? 'flex' : 'none';
+  }
+  renderHistory();
+}
+
+function getFilteredHistory() {
   const db = getDB();
+  const filterSelect = document.getElementById('historyFilterSelect');
+  const filterKey = filterSelect ? filterSelect.value : 'all';
+  const filterError = getHistoryFilterError(filterKey);
+  return {
+    history: filterError ? [] : db.history.filter(trx => matchesHistoryFilter(trx, filterKey)),
+    filterKey,
+    filterError
+  };
+}
+
+function renderHistory() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
 
-  const filterSelect = document.getElementById('historyFilterSelect');
-  const filterKey = filterSelect ? filterSelect.value : 'all';
-  const filteredHistory = db.history.filter(trx => matchesHistoryFilter(trx, filterKey));
+  const { history: filteredHistory, filterError } = getFilteredHistory();
+  const filterMessage = document.getElementById('historyFilterMessage');
+  if (filterMessage) filterMessage.textContent = filterError;
 
   tbody.innerHTML = '';
 
@@ -810,6 +865,115 @@ function renderHistory() {
   document.getElementById('statTotalRental').textContent = formatRupiah(totalRental);
   document.getElementById('statTotalFnb').textContent = formatRupiah(totalFnb);
   document.getElementById('statTotalTrx').textContent = filteredHistory.length;
+}
+
+function escapeReportHtml(value) {
+  const text = value === null || value === undefined ? '' : String(value);
+  return text.replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
+function getReportPeriodLabel(filterKey) {
+  if (filterKey !== 'range') {
+    const labels = {
+      all: 'Semua Waktu',
+      today: 'Hari Ini',
+      week: 'Minggu Ini',
+      month: 'Bulan Ini',
+      year: 'Tahun Ini'
+    };
+    return labels[filterKey] || 'Semua Waktu';
+  }
+
+  const startValue = document.getElementById('historyStartDate').value;
+  const endValue = document.getElementById('historyEndDate').value;
+  return `${startValue} sampai ${endValue}`;
+}
+
+function exportHistoryReport(format) {
+  const { history, filterKey, filterError } = getFilteredHistory();
+  if (filterError) {
+    alert(filterError);
+    return;
+  }
+
+  const totals = history.reduce((sum, trx) => ({
+    rental: sum.rental + Number(trx.rentalCost || 0),
+    items: sum.items + Number(trx.itemsCost || 0),
+    total: sum.total + Number(trx.totalCost || 0)
+  }), { rental: 0, items: 0, total: 0 });
+
+  const transactionRows = history.map(trx => {
+    const itemDetails = (trx.items || [])
+      .map(item => `${item.name} x${item.qty}`)
+      .join(', ');
+    return `
+      <tr>
+        <td>${escapeReportHtml(trx.id)}</td>
+        <td>${escapeReportHtml(trx.date)}</td>
+        <td>${escapeReportHtml(trx.unitName)}</td>
+        <td>${escapeReportHtml(trx.durationText)}</td>
+        <td>${escapeReportHtml(itemDetails || '-')}</td>
+        <td>${Number(trx.rentalCost || 0)}</td>
+        <td>${Number(trx.itemsCost || 0)}</td>
+        <td>${Number(trx.totalCost || 0)}</td>
+        <td>${escapeReportHtml(trx.paymentMethod)}</td>
+      </tr>`;
+  }).join('');
+
+  const title = `Rekap Riwayat Transaksi - ${getReportPeriodLabel(filterKey)}`;
+  const documentHtml = `<!DOCTYPE html>
+    <html lang="id">
+    <head><meta charset="UTF-8"><title>${escapeReportHtml(title)}</title>
+      <style>
+        body{font-family:Arial,sans-serif;color:#1f2937}
+        h1{font-size:20px}p{margin:6px 0}
+        table{border-collapse:collapse;width:100%;margin-top:18px}
+        th,td{border:1px solid #9ca3af;padding:7px;text-align:left}
+        th{background:#e5e7eb} .summary{margin-top:14px}
+      </style>
+    </head>
+    <body>
+      <h1>${escapeReportHtml(title)}</h1>
+      <p>Periode: ${escapeReportHtml(getReportPeriodLabel(filterKey))}</p>
+      <div class="summary">
+        <p>Jumlah Transaksi: ${history.length}</p>
+        <p>Pendapatan Rental PS: Rp ${totals.rental.toLocaleString('id-ID')}</p>
+        <p>Pendapatan Menu: Rp ${totals.items.toLocaleString('id-ID')}</p>
+        <p><strong>Total Omset: Rp ${totals.total.toLocaleString('id-ID')}</strong></p>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID Transaksi</th><th>Waktu</th><th>Unit</th><th>Durasi</th>
+          <th>Menu yang Diambil</th><th>Biaya Rental (Rp)</th><th>Biaya Menu (Rp)</th>
+          <th>Total Bayar (Rp)</th><th>Metode Pembayaran</th>
+        </tr></thead>
+        <tbody>${transactionRows || '<tr><td colspan="9">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
+        <tfoot><tr>
+          <th colspan="5">TOTAL</th><th>${totals.rental}</th><th>${totals.items}</th>
+          <th>${totals.total}</th><th></th>
+        </tr></tfoot>
+      </table>
+    </body></html>`;
+
+  const isExcel = format === 'excel';
+  const extension = isExcel ? 'xls' : 'doc';
+  const mimeType = isExcel ? 'application/vnd.ms-excel;charset=utf-8' : 'application/msword;charset=utf-8';
+  const now = new Date();
+  const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const fileName = `rekap_riwayat_${fileDate}.${extension}`;
+  const blob = new Blob(['\ufeff', documentHtml], { type: mimeType });
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
 }
 
 function deleteHistoryTransaction(id) {
