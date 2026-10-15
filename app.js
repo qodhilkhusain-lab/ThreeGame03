@@ -58,7 +58,17 @@ function getDB() {
 }
 
 function saveDB(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    if (error && error.name === 'QuotaExceededError') {
+      alert('Penyimpanan browser penuh. Coba gunakan gambar yang lebih kecil atau hapus gambar yang tidak diperlukan.');
+    } else {
+      console.error('Gagal menyimpan data aplikasi.', error);
+      alert('Data gagal disimpan. Periksa ruang penyimpanan browser lalu coba lagi.');
+    }
+    return false;
+  }
 
   try {
     fetch('/api/db', {
@@ -73,6 +83,7 @@ function saveDB(data) {
   } catch (error) {
     // ignore when browser environment does not allow fetch
   }
+  return true;
 }
 
 function productStockValue(product) {
@@ -87,15 +98,52 @@ function getProductImageUrl(product) {
   return 'assets/placeholder-product.svg';
 }
 
+function inferUnitTypeFromName(name) {
+  const normalized = (name || '').toLowerCase();
+  const playStationMatch = normalized.match(/\bps\s*([345])\b/);
+  if (playStationMatch) return `PS ${playStationMatch[1]}`;
+  if (normalized.includes('tv')) return 'TV';
+  return 'PS';
+}
+
+function getUnitType(unit) {
+  const inferredType = inferUnitTypeFromName(unit.name);
+  if (inferredType.startsWith('PS ')) return inferredType;
+  return unit.type || inferredType;
+}
+
 function getUnitImageUrl(unit) {
   if (unit && unit.image) return unit.image;
+  const unitType = getUnitType(unit);
+  if (unitType === 'PS 3') return 'assets/console-ps3.svg';
+  if (unitType === 'PS 4') return 'assets/console-ps4.svg';
+  if (unitType === 'PS 5') return 'assets/console-ps5.svg';
   return 'assets/placeholder-unit.svg';
 }
 
-function inferUnitTypeFromName(name) {
-  const normalized = (name || '').toLowerCase();
-  if (normalized.includes('tv')) return 'TV';
-  return 'PS';
+function getUnitDisplayName(name) {
+  const tvNumber = (name || '').match(/\btv\s*0*(\d+)\b/i);
+  if (tvNumber) return tvNumber[1].padStart(2, '0');
+  const unitNumber = (name || '').match(/#\s*0*(\d+)\b/);
+  if (unitNumber) return unitNumber[1].padStart(2, '0');
+  if (/^\d+$/.test(name || '')) return name.padStart(2, '0');
+  return name || '';
+}
+
+function updateAdminUnitNamePreview() {
+  const category = document.getElementById('adminUnitCategory');
+  const number = document.getElementById('adminUnitNumber');
+  const preview = document.getElementById('adminUnitNamePreview');
+  if (!category || !number || !preview) return;
+
+  const enteredNumber = Number(number.value.trim() || '1');
+  const unitNumber = Number.isInteger(enteredNumber) && enteredNumber >= 0
+    ? String(enteredNumber).padStart(2, '0')
+    : number.value.trim();
+  preview.textContent = `Katalog: ${unitNumber} · ${category.options[category.selectedIndex].text}`;
+  const imagePreview = document.getElementById('adminUnitImagePreview');
+  const customImage = document.getElementById('adminUnitImage')?.value.trim();
+  if (imagePreview && !customImage) imagePreview.src = getUnitImageUrl({ type: category.value, name: unitNumber });
 }
 
 // Global active modal unit
@@ -104,6 +152,7 @@ let chosenDurationMinutes = 0;
 let editingProductId = null;
 let editingUnitId = null;
 let pendingAdminTab = null;
+let expiryAlarmAudioContext = null;
 
 // Ganti sandi sesuai keinginan Anda di sini
 const ADMIN_PIN = "160107";
@@ -123,9 +172,7 @@ function activateTab(tabName) {
   if (tabName === 'admin') {
     renderAdminProducts();
     renderAdminUnits();
-    renderAdminAttendantShifts();
-    renderAdminHistory();
-    renderAdminExpenses();
+    renderAdminDateData();
   }
 }
 
@@ -175,7 +222,7 @@ function bindProductImageUpload() {
     const preview = document.getElementById(previewId);
     if (!input || !preview) return;
 
-    input.addEventListener('change', function (event) {
+    input.addEventListener('change', async function (event) {
       const file = event.target.files && event.target.files[0];
       if (!file) {
         preview.src = fallbackSrc;
@@ -184,20 +231,37 @@ function bindProductImageUpload() {
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        preview.src = e.target.result;
+      try {
+        const bitmap = await createImageBitmap(file);
+        const maxDimension = 1000;
+        const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas gambar tidak tersedia.');
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+
+        let imageData = canvas.toDataURL('image/webp', 0.8);
+        if (!imageData.startsWith('data:image/webp;')) {
+          imageData = canvas.toDataURL('image/jpeg', 0.8);
+        }
+
+        preview.src = imageData;
         const hidden = document.getElementById(hiddenId);
-        if (hidden) hidden.value = e.target.result;
-      };
-      reader.readAsDataURL(file);
+        if (hidden) hidden.value = imageData;
+      } catch (error) {
+        console.error('Gagal memproses gambar unggahan.', error);
+        input.value = '';
+        alert('Gambar tidak dapat diproses. Coba pilih gambar JPG, PNG, atau WebP yang valid.');
+      }
     });
   };
 
   attachImagePreview('adminProdImageUpload', 'adminProdImage', 'adminProdImagePreview');
   attachImagePreview('editProdImageUpload', 'editProdImage', 'editProdImagePreview');
-  attachImagePreview('adminUnitImageUpload', 'adminUnitImage', 'adminUnitImagePreview', 'assets/placeholder-unit.svg');
-  attachImagePreview('editUnitImageUpload', 'editUnitImage', 'editUnitImagePreview', 'assets/placeholder-unit.svg');
+  attachImagePreview('adminUnitImageUpload', 'adminUnitImage', 'adminUnitImagePreview', 'assets/console-ps3.svg');
 }
 
 // Helpers
@@ -245,10 +309,12 @@ function showWarningToast(message) {
 function checkNearFinishWarnings() {
   const db = getDB();
   const warnedUnits = window.__nearFinishWarnedUnits || {};
+  const alarmedUnits = window.__expiredUnitAlarms || {};
 
   db.units.forEach(unit => {
     if (unit.status !== 'running' || !unit.startTime || unit.targetMinutes <= 0) {
       delete warnedUnits[unit.id];
+      delete alarmedUnits[unit.id];
       return;
     }
 
@@ -256,9 +322,17 @@ function checkNearFinishWarnings() {
     const remainingSec = Math.max(0, (unit.targetMinutes * 60) - elapsedSec);
     const warningThresholdSec = 5 * 60;
 
+    if (remainingSec === 0 && !alarmedUnits[unit.id]) {
+      alarmedUnits[unit.id] = true;
+      showWarningToast(`Waktu bermain TV ${getUnitDisplayName(unit.name)} sudah habis.`);
+      playExpiryAlarm();
+    }
+
     if (remainingSec <= warningThresholdSec && !warnedUnits[unit.id]) {
       warnedUnits[unit.id] = true;
-      showWarningToast(`Waktu ${unit.name} tinggal ${Math.max(1, Math.ceil(remainingSec / 60))} menit. Sudah mau selesai?`);
+      if (remainingSec > 0) {
+        showWarningToast(`Waktu TV ${getUnitDisplayName(unit.name)} tinggal ${Math.max(1, Math.ceil(remainingSec / 60))} menit. Sudah mau selesai?`);
+      }
     }
 
     if (remainingSec > warningThresholdSec) {
@@ -267,6 +341,58 @@ function checkNearFinishWarnings() {
   });
 
   window.__nearFinishWarnedUnits = warnedUnits;
+  window.__expiredUnitAlarms = alarmedUnits;
+}
+
+function prepareExpiryAlarmAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return Promise.reject(new Error('Browser tidak mendukung Web Audio.'));
+
+  if (!expiryAlarmAudioContext) expiryAlarmAudioContext = new AudioContextClass();
+  if (expiryAlarmAudioContext.state === 'suspended') {
+    return expiryAlarmAudioContext.resume();
+  }
+  if (expiryAlarmAudioContext.state !== 'running') {
+    return Promise.reject(new Error(`Status audio tidak tersedia: ${expiryAlarmAudioContext.state}.`));
+  }
+  return Promise.resolve();
+}
+
+function playExpiryAlarmTone() {
+  if (!expiryAlarmAudioContext) return;
+
+  const context = expiryAlarmAudioContext;
+  const startAt = context.currentTime;
+  [0, 0.62, 1.24, 1.86].forEach((offset, index) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const toneStart = startAt + offset;
+    oscillator.type = 'square';
+    oscillator.frequency.setValueAtTime(index % 2 === 0 ? 980 : 1320, toneStart);
+    gain.gain.setValueAtTime(0.001, toneStart);
+    gain.gain.exponentialRampToValueAtTime(0.95, toneStart + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, toneStart + 0.48);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(toneStart);
+    oscillator.stop(toneStart + 0.5);
+  });
+}
+
+function playExpiryAlarm() {
+  if (typeof navigator.vibrate === 'function') navigator.vibrate([180, 100, 180]);
+
+  if (!expiryAlarmAudioContext) {
+    showWarningToast('Waktu habis, tetapi suara tidak aktif. Periksa izin audio browser dan volume laptop.');
+    return;
+  }
+
+  prepareExpiryAlarmAudio()
+    .then(playExpiryAlarmTone)
+    .catch(error => {
+      console.error('Tidak dapat membunyikan alarm waktu habis.', error);
+      showWarningToast('Waktu habis. Alarm getar aktif, tetapi suara diblokir browser atau perangkat.');
+    });
 }
 
 // --- TAB 1: KASIR ---
@@ -274,9 +400,46 @@ function renderUnits() {
   const db = getDB();
   const grid = document.getElementById('unitsGrid');
   if (!grid) return;
+  renderCashierAttendant(db);
   grid.innerHTML = '';
 
-  db.units.forEach(unit => {
+  const availableCount = db.units.filter(unit => unit.status !== 'running').length;
+  const runningCount = db.units.length - availableCount;
+  const availableCountElement = document.getElementById('unitCountAvailable');
+  const runningCountElement = document.getElementById('unitCountRunning');
+  if (availableCountElement) availableCountElement.textContent = availableCount;
+  if (runningCountElement) runningCountElement.textContent = runningCount;
+
+  const unitSearch = (document.getElementById('unitSearch')?.value || '').trim().toLocaleLowerCase('id-ID');
+  const categoryFilter = document.getElementById('unitCategoryFilter')?.value || 'all';
+  const unitNameCollator = new Intl.Collator('id', { numeric: true, sensitivity: 'base' });
+  const units = [...db.units].sort((a, b) => {
+    const getGroup = unit => {
+      if (unit.status !== 'running') return 2;
+      return Number(unit.targetMinutes) > 0 ? 0 : 1;
+    };
+    const groupDifference = getGroup(a) - getGroup(b);
+    if (groupDifference !== 0) return groupDifference;
+
+    if (getGroup(a) === 0) {
+      const remainingA = Math.max(0, Number(a.targetMinutes) * 60 - Math.floor((Date.now() - Number(a.startTime)) / 1000));
+      const remainingB = Math.max(0, Number(b.targetMinutes) * 60 - Math.floor((Date.now() - Number(b.startTime)) / 1000));
+      if (remainingA !== remainingB) return remainingA - remainingB;
+    }
+
+    return unitNameCollator.compare(a.name, b.name);
+  }).filter(unit => {
+    const matchesSearch = !unitSearch || getUnitDisplayName(unit.name).toLocaleLowerCase('id-ID').includes(unitSearch);
+    const matchesCategory = categoryFilter === 'all' || getUnitType(unit) === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  if (units.length === 0) {
+    grid.innerHTML = '<div class="unit-empty-state"><strong>Unit tidak ditemukan</strong><span>Coba ubah nomor TV atau kategori PlayStation.</span></div>';
+    return;
+  }
+
+  units.forEach(unit => {
     const isRunning = unit.status === 'running';
     const card = document.createElement('div');
     card.className = `unit-card ${isRunning ? 'running' : ''}`;
@@ -300,27 +463,30 @@ function renderUnits() {
     const itemsCost = (unit.orderItems || []).reduce((acc, item) => acc + (item.price * item.qty), 0);
     const totalCurrentCost = rentalCost + itemsCost;
 
-    const unitType = inferUnitTypeFromName(unit.name);
+    const unitType = getUnitType(unit);
 
     card.innerHTML = `
       <div>
         <div class="unit-image">
-          <img src="${getUnitImageUrl(unit)}" alt="${unit.name}">
+          <img src="${getUnitImageUrl(unit)}" alt="Ilustrasi konsol ${unitType}">
         </div>
         <div class="unit-header">
-          <div class="unit-title">${unit.name}</div>
-          <span class="badge ${unitType === 'TV' ? 'badge-ready' : 'badge-running'}" style="margin-top:6px; display:inline-block;">
-            ${unitType}
-          </span>
-          <span class="badge ${isRunning ? 'badge-running' : 'badge-ready'}" style="margin-left:6px;">
-            ${isRunning ? (unit.targetMinutes === 0 ? 'LOSS' : unit.targetMinutes + 'm') : 'Tersedia'}
+          <div class="unit-title">${getUnitDisplayName(unit.name)}</div>
+          <span class="badge ${isRunning ? 'badge-running' : 'badge-ready'}">
+            ${isRunning ? (unit.targetMinutes === 0 ? 'LOSS · Berjalan' : `Paket ${unit.targetMinutes} menit`) : 'Siap digunakan'}
           </span>
         </div>
         <div class="unit-rate">Tarif: ${formatRupiah(unit.ratePerHour)} / jam</div>
         
         <div class="timer-box">
-          <div class="timer-val">${isRunning ? timerLabel : '00:00:00'}</div>
-          <div class="cost-val">${isRunning ? formatRupiah(totalCurrentCost) : 'Siap Pakai'}</div>
+          ${isRunning ? `
+            <div class="timer-caption">${unit.targetMinutes > 0 ? 'Sisa waktu' : 'Durasi berjalan'}</div>
+            <div class="timer-val">${timerLabel.replace(/^Sisa /, '')}</div>
+            <div class="cost-caption">Total sementara</div>
+            <div class="cost-val">${formatRupiah(totalCurrentCost)}</div>
+          ` : `
+            <div class="ready-message"><span class="ready-indicator"></span>Unit siap untuk disewakan</div>
+          `}
           ${itemsCost > 0 ? `<div class="orders-tag">+ Minuman/Snack: ${formatRupiah(itemsCost)}</div>` : ''}
           ${isRunning ? '<div class="unit-details-hint">Tekan kartu untuk rincian biaya</div>' : ''}
         </div>
@@ -353,7 +519,7 @@ function openRunningUnitDetails(unitId) {
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((total, item) => total + item.price * item.qty, 0);
 
-  document.getElementById('runningDetailsUnitName').textContent = unit.name;
+  document.getElementById('runningDetailsUnitName').textContent = getUnitDisplayName(unit.name);
   const playMode = unit.targetMinutes > 0
     ? `${unit.targetMinutes} Menit (Paket)`
     : 'Mode LOSS';
@@ -416,6 +582,7 @@ function continueRunningUnitToPayment() {
 
 // Modal Mulai
 function openStartModal(unitId) {
+  if (!requireActiveAttendantShift()) return;
   const db = getDB();
   const unit = db.units.find(u => u.id === unitId);
   if (!unit) return;
@@ -426,7 +593,7 @@ function openStartModal(unitId) {
   const customInput = document.getElementById('customDurationInput');
   if (customInput) customInput.value = '';
 
-  document.getElementById('startUnitTitle').textContent = `Mulai Rental - ${unit.name}`;
+  document.getElementById('startUnitTitle').textContent = `Mulai Rental - TV ${getUnitDisplayName(unit.name)}`;
   document.getElementById('startUnitRate').textContent = `Tarif: ${formatRupiah(unit.ratePerHour)} / jam`;
 
   // Reset duration button active
@@ -461,6 +628,16 @@ function applyCustomDuration() {
 }
 
 function confirmStartRental() {
+  const activeShift = getActiveAttendantShift(getDB());
+  if (!activeShift) {
+    requireActiveAttendantShift();
+    return;
+  }
+  prepareExpiryAlarmAudio().catch(error => {
+    console.error('Tidak dapat mengaktifkan audio alarm.', error);
+    showWarningToast('Suara alarm belum aktif. Periksa izin audio browser dan volume laptop.');
+  });
+
   const customInput = document.getElementById('customDurationInput');
   const customValue = customInput ? customInput.value.trim() : '';
   if (customValue) {
@@ -479,6 +656,8 @@ function confirmStartRental() {
     unit.startTime = Date.now();
     unit.targetMinutes = chosenDurationMinutes;
     unit.orderItems = [];
+    unit.shiftId = activeShift.id;
+    unit.attendantName = activeShift.staffName;
     saveDB(db);
     closeAllModals();
     renderUnits();
@@ -490,17 +669,22 @@ function renderOrderProductList(filter = 'Semua') {
   const db = getDB();
   const listEl = document.getElementById('orderProductList');
   if (!listEl) return;
+  const searchInput = document.getElementById('orderProductSearch');
+  const search = searchInput ? searchInput.value.trim().toLocaleLowerCase('id-ID') : '';
 
   const products = filter === 'Semua'
     ? db.products
     : db.products.filter(product => product.category === filter);
+  const visibleProducts = products.filter(product => !search
+    || `${product.name} ${product.category}`.toLocaleLowerCase('id-ID').includes(search));
 
-  if (products.length === 0) {
-    listEl.innerHTML = '<p style="margin:0; color:#94a3b8; font-size:12px;">Tidak ada item di kategori ini.</p>';
+  if (visibleProducts.length === 0) {
+    listEl.innerHTML = `<p class="order-product-empty">${products.length ? 'Menu tidak ditemukan. Coba kata kunci lain.' : 'Tidak ada item di kategori ini.'}</p>`;
+    updateSelectedOrderCount();
     return;
   }
 
-  listEl.innerHTML = products.map(product => {
+  listEl.innerHTML = visibleProducts.map(product => {
     const stockValue = productStockValue(product);
     const stockText = stockValue === null ? 'Stok tak terbatas' : `Stok: ${stockValue}`;
     const unit = db.units.find(item => item.id === activeUnitId);
@@ -565,9 +749,23 @@ function openOrderModal(unitId) {
   const db = getDB();
   const unit = db.units.find(u => u.id === unitId);
   if (!unit) return;
+  if (!requireAttendantForTransaction(unit)) return;
 
   activeUnitId = unitId;
-  document.getElementById('orderUnitTitle').textContent = `Tambah Item: ${unit.name}`;
+  document.getElementById('orderUnitTitle').textContent = `Tambah Item: TV ${getUnitDisplayName(unit.name)}`;
+  const searchInput = document.getElementById('orderProductSearch');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.oninput = () => {
+      const categoryFilter = document.getElementById('orderCategoryFilter');
+      renderOrderProductList(categoryFilter ? categoryFilter.value : 'Semua');
+    };
+    searchInput.onkeydown = event => {
+      if (event.key === 'Enter') event.preventDefault();
+    };
+  }
+  const feedback = document.getElementById('orderProductFeedback');
+  if (feedback) feedback.textContent = '';
 
   const categoryFilter = document.getElementById('orderCategoryFilter');
   if (categoryFilter) {
@@ -585,6 +783,7 @@ function addSelectedItemsToUnit() {
   const db = getDB();
   const unit = db.units.find(u => u.id === activeUnitId);
   if (!unit) return;
+  if (!requireAttendantForTransaction(unit)) return;
 
   const selectedItems = Array.from(document.querySelectorAll('.order-product-qty'))
     .map(input => ({
@@ -609,8 +808,6 @@ function addSelectedItemsToUnit() {
     }
   }
 
-  let totalSelectedText = '';
-
   selectedItems.forEach(item => {
     const product = db.products.find(p => p.id === item.id);
     if (!product) return;
@@ -633,7 +830,6 @@ function addSelectedItemsToUnit() {
       });
     }
 
-    totalSelectedText += `${product.name} x${item.qty}, `;
   });
 
   saveDB(db);
@@ -641,7 +837,11 @@ function addSelectedItemsToUnit() {
   document.querySelectorAll('.order-product-qty').forEach(input => { input.value = 0; });
   const categoryFilter = document.getElementById('orderCategoryFilter');
   renderOrderProductList(categoryFilter ? categoryFilter.value : 'Semua');
-  alert(`${totalSelectedText.slice(0, -2)} berhasil ditambahkan ke ${unit.name}`);
+  const feedback = document.getElementById('orderProductFeedback');
+  if (feedback) {
+    const totalCount = selectedItems.reduce((total, item) => total + item.qty, 0);
+    feedback.textContent = `${totalCount} item berhasil ditambahkan ke TV ${getUnitDisplayName(unit.name)}.`;
+  }
 }
 
 // Modal Selesai & Bayar
@@ -649,6 +849,7 @@ function openStopModal(unitId) {
   const db = getDB();
   const unit = db.units.find(u => u.id === unitId);
   if (!unit) return;
+  if (!requireAttendantForTransaction(unit)) return;
 
   activeUnitId = unitId;
   const endTime = Date.now();
@@ -666,7 +867,7 @@ function openStopModal(unitId) {
     durDesc = `Mode LOSS (${mins} Menit)`;
   }
 
-  document.getElementById('receiptUnitName').textContent = unit.name;
+  document.getElementById('receiptUnitName').textContent = `TV ${getUnitDisplayName(unit.name)}`;
   document.getElementById('receiptDuration').textContent =
     `${formatRentalTimeRange(unit.startTime, endTime)} • ${durDesc}`;
   document.getElementById('receiptRentalCost').textContent = formatRupiah(rentalCost);
@@ -679,6 +880,7 @@ function processPayment() {
   const db = getDB();
   const unit = db.units.find(u => u.id === activeUnitId);
   if (!unit) return;
+  if (!requireAttendantForTransaction(unit, db)) return;
 
   const paymentMethod = document.getElementById('paymentMethodSelect').value;
   const endTime = Date.now();
@@ -693,13 +895,14 @@ function processPayment() {
   // Add transaction to history
   const now = new Date(endTime);
   const dateStr = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-  const activeShift = getActiveAttendantShift(db);
+  const assignedShift = db.shifts.find(shift => shift.id === unit.shiftId);
+  const activeShift = assignedShift || getActiveAttendantShift(db);
   const trx = {
     id: 'TRX-' + Date.now().toString().slice(-6),
     date: dateStr,
     shiftId: activeShift ? activeShift.id : null,
     attendantName: activeShift ? activeShift.staffName : '',
-    unitName: unit.name,
+    unitName: `TV ${getUnitDisplayName(unit.name)}`,
     durationText: `${durDesc} • ${formatRentalTimeRange(unit.startTime, endTime)}`,
     startTime: unit.startTime,
     endTime: endTime,
@@ -717,10 +920,13 @@ function processPayment() {
   unit.startTime = null;
   unit.targetMinutes = 0;
   unit.orderItems = [];
+  delete unit.shiftId;
+  delete unit.attendantName;
 
   saveDB(db);
   closeAllModals();
   renderUnits();
+  renderHistory();
   alert(`Pembayaran Sukses! Total: ${formatRupiah(grandTotal)} (${paymentMethod})`);
 }
 
@@ -732,9 +938,63 @@ function getActiveAttendantShift(db) {
   return db.shifts.find(shift => shift.endTime === null || shift.endTime === undefined) || null;
 }
 
-function setAttendantShift(event) {
+function renderCashierAttendant(db = getDB()) {
+  const activeShift = getActiveAttendantShift(db);
+  const status = document.getElementById('cashierAttendantStatus');
+  const nameInput = document.getElementById('cashierAttendantNameInput');
+  const finishButton = document.getElementById('finishAttendantShiftButton');
+  const historyInput = document.getElementById('attendantNameInput');
+  const cashierSubmit = nameInput && nameInput.form
+    ? nameInput.form.querySelector('button[type="submit"]')
+    : null;
+
+  if (status) {
+    status.textContent = activeShift
+      ? `${activeShift.staffName} sedang bertugas sejak ${formatAttendantShiftTime(activeShift.startTime)}.`
+      : 'Masukkan nama karyawan sebelum memulai transaksi.';
+  }
+  if (finishButton) finishButton.hidden = !activeShift;
+  if (cashierSubmit) cashierSubmit.textContent = activeShift ? 'Ganti Petugas' : 'Mulai Shift';
+  if (historyInput && activeShift && document.activeElement !== historyInput) {
+    historyInput.value = activeShift.staffName;
+  } else if (historyInput && !activeShift && document.activeElement !== historyInput) {
+    historyInput.value = '';
+  }
+}
+
+function requireActiveAttendantShift() {
+  if (getActiveAttendantShift(getDB())) return true;
+  const message = 'Transaksi belum bisa dimulai. Isi nama karyawan yang jaga terlebih dahulu.';
+  const status = document.getElementById('cashierAttendantStatus');
+  if (status) status.textContent = message;
+  showWarningToast(message);
+  const input = document.getElementById('cashierAttendantNameInput');
+  if (input) input.focus();
+  return false;
+}
+
+function requireAttendantForTransaction(unit, db = getDB()) {
+  if (getActiveAttendantShift(db)) return true;
+  const assignedShift = unit && db.shifts.find(shift => shift.id === unit.shiftId);
+  if (assignedShift) return true;
+  return requireActiveAttendantShift();
+}
+
+function endAttendantShift() {
+  const db = getDB();
+  const activeShift = getActiveAttendantShift(db);
+  if (!activeShift) return;
+
+  activeShift.endTime = Date.now();
+  saveDB(db);
+  renderHistory();
+  renderAdminDateData();
+  renderUnits();
+}
+
+function setAttendantShift(event, inputId = 'attendantNameInput') {
   event.preventDefault();
-  const input = document.getElementById('attendantNameInput');
+  const input = document.getElementById(inputId);
   const staffName = input ? input.value.trim() : '';
   if (!staffName) {
     alert('Nama petugas harus diisi.');
@@ -760,6 +1020,8 @@ function setAttendantShift(event) {
 
   if (input) input.value = '';
   renderHistory();
+  renderAdminDateData();
+  renderUnits();
 }
 
 function formatAttendantShiftTime(timestamp) {
@@ -777,7 +1039,7 @@ function formatAttendantShiftTime(timestamp) {
 function parseTransactionDate(dateStr) {
   if (!dateStr) return new Date(NaN);
 
-  const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*(\d{1,2})[:.](\d{2})?/);
+  const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s*(\d{1,2})[:.](\d{2})?)?/);
   if (match) {
     const day = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
@@ -881,8 +1143,7 @@ function openDatePicker(inputId) {
   }
 }
 
-function getFilteredHistory() {
-  const db = getDB();
+function getFilteredHistory(db = getDB()) {
   const filterSelect = document.getElementById('historyFilterSelect');
   const filterKey = filterSelect ? filterSelect.value : 'all';
   const filterError = getHistoryFilterError(filterKey);
@@ -1058,7 +1319,15 @@ function renderAdminExpenses() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  db.expenses.forEach(expense => {
+  const expenses = db.expenses.filter(expense => {
+    if (getAdminDateFilterError()) return false;
+    const { startValue, endValue } = getAdminDateRange();
+    if (!startValue && !endValue) return true;
+    const date = parseExpenseDate(expense.date);
+    const bounds = getAdminDateBounds();
+    return Boolean(bounds && !Number.isNaN(date.getTime()) && date >= bounds.start && date <= bounds.end);
+  });
+  expenses.forEach(expense => {
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>${escapeReportHtml(expense.date)}</td>
@@ -1070,8 +1339,8 @@ function renderAdminExpenses() {
     tbody.appendChild(row);
   });
 
-  if (db.expenses.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada catatan pengeluaran.</td></tr>';
+  if (expenses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada pengeluaran pada tanggal yang dipilih.</td></tr>';
   }
 }
 
@@ -1557,12 +1826,13 @@ function downloadReportFile(content, mimeType, fileName) {
 }
 
 function exportHistoryReport(format) {
-  const { history, expenses, filterKey, filterError } = getFilteredHistory();
+  const db = getDB();
+  const { history, expenses, filterKey, filterError } = getFilteredHistory(db);
   if (filterError) {
     alert(filterError);
     return;
   }
-  const shifts = getDB().shifts;
+  const shifts = db.shifts;
   const attendantShiftRows = getAttendantShiftReportRows(history, shifts);
 
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
@@ -1677,6 +1947,80 @@ function deleteHistoryTransaction(id) {
   saveDB(db);
   renderHistory();
   renderAdminHistory();
+  renderAdminAttendantShifts();
+}
+
+function getAdminDateRange() {
+  const startInput = document.getElementById('adminStartDate');
+  const endInput = document.getElementById('adminEndDate');
+  return {
+    startValue: startInput ? startInput.value : '',
+    endValue: endInput ? endInput.value : ''
+  };
+}
+
+function getAdminDateBounds() {
+  const { startValue, endValue } = getAdminDateRange();
+  if (!startValue || !endValue || startValue > endValue) return null;
+  const [startYear, startMonth, startDay] = startValue.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endValue.split('-').map(Number);
+  return {
+    start: new Date(startYear, startMonth - 1, startDay),
+    end: new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999)
+  };
+}
+
+function getAdminDateFilterError() {
+  const { startValue, endValue } = getAdminDateRange();
+  if (!startValue && !endValue) return '';
+  if (!startValue || !endValue) return 'Pilih tanggal awal dan tanggal akhir untuk melihat data.';
+  if (startValue > endValue) return 'Tanggal awal tidak boleh melewati tanggal akhir.';
+  return '';
+}
+
+function matchesAdminDate(value, isTimestamp = false) {
+  const { startValue, endValue } = getAdminDateRange();
+  if (!startValue && !endValue) return true;
+  if (!startValue || !endValue || startValue > endValue) return false;
+
+  const date = isTimestamp ? new Date(Number(value)) : parseTransactionDate(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const bounds = getAdminDateBounds();
+  return Boolean(bounds && date >= bounds.start && date <= bounds.end);
+}
+
+function getAdminFilteredTransactions(db = getDB()) {
+  if (getAdminDateFilterError()) return [];
+  return db.history.filter(trx => matchesAdminDate(trx.date));
+}
+
+function renderAdminDateData() {
+  const message = document.getElementById('adminDateFilterMessage');
+  const { startValue, endValue } = getAdminDateRange();
+  const filterError = getAdminDateFilterError();
+  if (message) {
+    message.textContent = filterError || (!startValue && !endValue
+      ? 'Menampilkan semua tanggal.'
+      : `Menampilkan data ${startValue} sampai ${endValue}.`);
+    message.classList.toggle('error', Boolean(filterError));
+    message.classList.toggle('success', !filterError && Boolean(startValue && endValue));
+  }
+  renderAdminAttendantShifts();
+  renderAdminHistory();
+  renderAdminExpenses();
+}
+
+function clearAdminDateFilter() {
+  const startInput = document.getElementById('adminStartDate');
+  const endInput = document.getElementById('adminEndDate');
+  if (startInput) startInput.value = '';
+  if (endInput) endInput.value = '';
+  const message = document.getElementById('adminDateFilterMessage');
+  if (message) {
+    message.textContent = 'Menampilkan semua tanggal.';
+    message.classList.remove('error', 'success');
+  }
+  renderAdminDateData();
 }
 
 function renderAdminHistory() {
@@ -1685,7 +2029,8 @@ function renderAdminHistory() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  db.history.forEach(trx => {
+  const history = getAdminFilteredTransactions(db);
+  history.forEach(trx => {
     const row = document.createElement('tr');
     row.innerHTML = `
       <td><strong>${trx.id}</strong></td>
@@ -1699,6 +2044,9 @@ function renderAdminHistory() {
     `;
     tbody.appendChild(row);
   });
+  if (history.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada transaksi pada tanggal yang dipilih.</td></tr>';
+  }
 }
 
 function renderAdminAttendantShifts() {
@@ -1707,10 +2055,27 @@ function renderAdminAttendantShifts() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  db.shifts.forEach(shift => {
-    const transactions = db.history.filter(trx => trx.shiftId === shift.id);
+  const history = getAdminFilteredTransactions(db);
+  const filterError = getAdminDateFilterError();
+  const activeShift = getActiveAttendantShift(db);
+  const visibleShifts = db.shifts.filter(shift => {
+    if (filterError) return false;
+    const { startValue, endValue } = getAdminDateRange();
+    if (!startValue && !endValue) return true;
+    const bounds = getAdminDateBounds();
+    if (!bounds) return false;
+    const start = bounds.start.getTime();
+    const end = bounds.end.getTime();
+    const shiftStart = Number(shift.startTime);
+    const shiftEnd = shift.endTime === null || shift.endTime === undefined ? Date.now() : Number(shift.endTime);
+    return (shiftStart <= end && shiftEnd >= start)
+      || history.some(trx => trx.shiftId === shift.id);
+  }).sort((a, b) => Number(b.startTime) - Number(a.startTime));
+
+  visibleShifts.forEach(shift => {
+    const transactions = history.filter(trx => trx.shiftId === shift.id);
     const total = transactions.reduce((sum, trx) => sum + (Number(trx.totalCost) || 0), 0);
-    const isActive = getActiveAttendantShift(db)?.id === shift.id;
+    const isActive = activeShift && activeShift.id === shift.id;
     const row = document.createElement('tr');
     row.innerHTML = `
       <td><strong>${escapeReportHtml(shift.staffName)}</strong>${isActive ? ' <span class="badge badge-running">Aktif</span>' : ''}</td>
@@ -1726,8 +2091,8 @@ function renderAdminAttendantShifts() {
     tbody.appendChild(row);
   });
 
-  if (db.shifts.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada riwayat jaga petugas.</td></tr>';
+  if (visibleShifts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada riwayat jaga pada tanggal yang dipilih.</td></tr>';
   }
 }
 
@@ -1820,10 +2185,10 @@ function renderAdminUnits() {
   tbody.innerHTML = '';
 
   db.units.forEach(u => {
-    const unitType = inferUnitTypeFromName(u.name);
+    const unitType = getUnitType(u);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><strong>${u.name}</strong></td>
+      <td><strong>${getUnitDisplayName(u.name)}</strong></td>
       <td><span class="badge ${unitType === 'TV' ? 'badge-ready' : 'badge-running'}">${unitType}</span></td>
       <td>${formatRupiah(u.ratePerHour)} / jam</td>
       <td style="display:flex; gap:8px;">
@@ -1882,12 +2247,19 @@ function addNewProduct(e) {
 function addNewUnit(e) {
   e.preventDefault();
   const db = getDB();
-  const name = document.getElementById('adminUnitName').value.trim();
-  const type = inferUnitTypeFromName(name);
+  const type = document.getElementById('adminUnitCategory').value;
+  const rawNumber = document.getElementById('adminUnitNumber').value.trim();
+  const number = Number(rawNumber);
+  const name = String(number).padStart(2, '0');
   const rate = parseInt(document.getElementById('adminUnitRate').value) || 0;
 
-  if (!name || rate <= 0) {
-    alert('Nama unit dan tarif per jam harus diisi dengan valid.');
+  if (!Number.isInteger(number) || number < 1 || rate <= 0) {
+    alert('Nomor unit dan tarif per jam harus diisi dengan valid.');
+    return;
+  }
+
+  if (db.units.some(unit => Number(getUnitDisplayName(unit.name)) === number)) {
+    alert(`Nomor TV ${number} sudah terdaftar. Pilih nomor TV yang belum digunakan.`);
     return;
   }
 
@@ -1904,14 +2276,14 @@ function addNewUnit(e) {
   };
 
   db.units.push(newUnit);
-  saveDB(db);
+  if (!saveDB(db)) return;
 
-  document.getElementById('adminUnitName').value = '';
+  document.getElementById('adminUnitNumber').value = '';
+  updateAdminUnitNamePreview();
   document.getElementById('adminUnitImage').value = '';
-  document.getElementById('adminUnitRate').value = '';
   document.getElementById('adminUnitImageUpload').value = '';
-  const unitPreview = document.getElementById('adminUnitImagePreview');
-  if (unitPreview) unitPreview.src = 'assets/placeholder-unit.svg';
+  document.getElementById('adminUnitImagePreview').src = getUnitImageUrl({ type, name });
+  document.getElementById('adminUnitRate').value = '';
 
   renderAdminUnits();
   renderUnits();
@@ -1983,12 +2355,8 @@ function openEditUnitModal(id) {
   if (!unit) return;
 
   editingUnitId = id;
-  document.getElementById('editUnitName').value = unit.name;
-  document.getElementById('editUnitType').value = unit.type || inferUnitTypeFromName(unit.name);
-  document.getElementById('editUnitImage').value = unit.image || '';
-  document.getElementById('editUnitImageUpload').value = '';
-  const unitPreview = document.getElementById('editUnitImagePreview');
-  if (unitPreview) unitPreview.src = unit.image || 'assets/placeholder-unit.svg';
+  document.getElementById('editUnitName').value = getUnitDisplayName(unit.name);
+  document.getElementById('editUnitType').value = getUnitType(unit);
   document.getElementById('editUnitRate').value = unit.ratePerHour;
   document.getElementById('modalEditUnit').classList.add('open');
 }
@@ -2000,17 +2368,22 @@ function saveUnitEdit(e) {
   if (!unit) return;
 
   const name = document.getElementById('editUnitName').value.trim();
-  const type = inferUnitTypeFromName(name);
+  const type = document.getElementById('editUnitType').value;
+  const number = Number(name);
   const rate = parseInt(document.getElementById('editUnitRate').value) || 0;
 
-  if (!name || rate <= 0) {
-    alert('Nama unit dan tarif per jam harus valid.');
+  if (!Number.isInteger(number) || number < 1 || rate <= 0) {
+    alert('Nomor TV dan tarif per jam harus valid.');
     return;
   }
 
-  unit.name = name;
+  if (db.units.some(otherUnit => otherUnit.id !== unit.id && Number(getUnitDisplayName(otherUnit.name)) === number)) {
+    alert(`Nomor TV ${String(number).padStart(2, '0')} sudah digunakan.`);
+    return;
+  }
+
+  unit.name = String(number).padStart(2, '0');
   unit.type = type;
-  unit.image = document.getElementById('editUnitImage').value.trim();
   unit.ratePerHour = rate;
 
   saveDB(db);
@@ -2031,9 +2404,9 @@ function deleteUnit(id) {
 
 // Timer Realtime Loop
 setInterval(() => {
+  checkNearFinishWarnings();
   const currentActiveTab = document.querySelector('.tab-content.active');
   if (currentActiveTab && currentActiveTab.id === 'tab-kasir') {
-    checkNearFinishWarnings();
     renderUnits();
     const runningDetailsModal = document.getElementById('modalRunningDetails');
     if (runningDetailsModal && runningDetailsModal.classList.contains('open') && activeUnitId) {
@@ -2046,6 +2419,19 @@ setInterval(() => {
 window.addEventListener('DOMContentLoaded', async () => {
   await initDatabase();
   bindProductImageUpload();
+  document.getElementById('unitSearch').addEventListener('input', renderUnits);
+  document.getElementById('unitCategoryFilter').addEventListener('change', renderUnits);
+  document.getElementById('adminUnitCategory').addEventListener('change', updateAdminUnitNamePreview);
+  document.getElementById('adminUnitNumber').addEventListener('input', updateAdminUnitNamePreview);
+  updateAdminUnitNamePreview();
+  const adminStartDate = document.getElementById('adminStartDate');
+  const adminEndDate = document.getElementById('adminEndDate');
+  if (adminStartDate && adminEndDate) {
+    const today = new Date();
+    const todayValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    adminStartDate.value = todayValue;
+    adminEndDate.value = todayValue;
+  }
   const expenseDate = document.getElementById('expenseDate');
   if (expenseDate) {
     const today = new Date();

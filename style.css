@@ -66,6 +66,11 @@ body {
   gap: 8px;
 }
 
+.card-actions .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .nav-btn {
   padding: 9px 14px;
   border-radius: 12px;
@@ -105,42 +110,154 @@ body {
 }
 
 /* Units Grid */
+.cashier-heading {
+  margin-bottom: 18px;
+  padding: 22px 24px;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(212, 175, 55, 0.17), transparent 34%),
+    linear-gradient(130deg, rgba(24, 34, 51, 0.98), rgba(13, 20, 32, 0.98));
+  box-shadow: 0 16px 32px rgba(2, 6, 23, 0.28);
+}
+
+.cashier-heading-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  color: #e8c766;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+}
+
+.cashier-heading h2 {
+  color: #f8fafc;
+  font-size: clamp(21px, 3vw, 28px);
+  line-height: 1.2;
+}
+
+.cashier-heading-description {
+  margin-top: 7px;
+  color: #aab6c9;
+  font-size: 13px;
+}
+
+.cashier-quick-stats {
+  display: flex;
+  gap: 10px;
+}
+
+.quick-stat {
+  min-width: 100px;
+  padding: 10px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.19);
+  border-radius: 13px;
+  background: rgba(8, 15, 27, 0.55);
+  text-align: center;
+}
+
+.quick-stat span,
+.quick-stat small {
+  display: block;
+}
+
+.quick-stat span {
+  color: #f8e7a1;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.quick-stat small {
+  margin-top: 2px;
+  color: #aab6c9;
+  font-size: 11px;
+}
+
+.unit-catalog-tools {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.unit-catalog-tools .form-control {
+  min-width: 0;
+  border-color: rgba(148, 163, 184, 0.28);
+  background-color: rgba(8, 15, 27, 0.7);
+}
+
+.unit-catalog-tools input {
+  flex: 1 1 300px;
+}
+
+.unit-catalog-tools select {
+  flex: 0 1 230px;
+}
+
+.unit-upload-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  background: rgba(8, 15, 27, 0.72);
+}
+
+.unit-upload-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
 .units-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
+  gap: 18px;
 }
 
 .unit-card {
-  background: linear-gradient(180deg, rgba(17, 24, 39, 0.96) 0%, rgba(15, 23, 42, 0.98) 100%);
-  border-radius: 18px;
-  padding: 16px;
-  border: 1px solid rgba(212, 175, 55, 0.2);
-  box-shadow: 0 18px 30px rgba(2, 6, 23, 0.45);
+  background: linear-gradient(165deg, rgba(31, 39, 51, 0.99) 0%, rgba(15, 22, 34, 0.99) 78%);
+  border-radius: 17px;
+  padding: 12px;
+  border: 1px solid rgba(212, 175, 55, 0.34);
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 290px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 360px;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .unit-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 22px 34px rgba(212, 175, 55, 0.12);
+  transform: translateY(-2px);
+  border-color: rgba(240, 217, 138, 0.72);
+  box-shadow: 0 20px 34px rgba(2, 6, 23, 0.45), 0 0 0 1px rgba(212, 175, 55, 0.08);
 }
 
 .unit-image {
-  margin-bottom: 12px;
+  position: relative;
+  margin-bottom: 13px;
   border-radius: 12px;
   overflow: hidden;
-  background: #0f172a;
-  border: 1px solid rgba(212, 175, 55, 0.18);
+  background: #131b27;
+  border: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .unit-image img {
   width: 100%;
-  height: 140px;
-  object-fit: cover;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
   display: block;
 }
 
@@ -156,14 +273,15 @@ body {
 }
 
 .unit-card.running {
-  border-color: rgba(245, 158, 11, 0.5);
-  background: linear-gradient(180deg, rgba(32, 24, 12, 0.96) 0%, rgba(20, 15, 10, 0.98) 100%);
+  border-color: rgba(245, 158, 11, 0.66);
+  background: linear-gradient(165deg, rgba(48, 37, 22, 0.99) 0%, rgba(21, 19, 18, 0.99) 78%);
 }
 
 .unit-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 12px;
 }
 
@@ -196,11 +314,11 @@ body {
 }
 
 .timer-box {
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 1));
-  border-radius: 10px;
-  padding: 10px 8px;
+  background: linear-gradient(180deg, rgba(28, 38, 54, 0.9), rgba(11, 17, 28, 0.98));
+  border-radius: 12px;
+  padding: 11px 8px;
   text-align: center;
-  border: 1px dashed rgba(212, 175, 55, 0.35);
+  border: 1px solid rgba(212, 175, 55, 0.24);
 }
 
 .unit-card.running .timer-box {
@@ -208,18 +326,51 @@ body {
   border-color: rgba(245, 158, 11, 0.4);
 }
 
+.timer-caption,
+.cost-caption {
+  color: #aab6c9;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
 .timer-val {
-  font-size: 20px;
+  margin: 3px 0 8px;
+  font-size: clamp(21px, 2vw, 27px);
   font-weight: 800;
-  color: #f8d77a;
-  letter-spacing: 1px;
+  color: #ffe29a;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px rgba(245, 158, 11, 0.2);
 }
 
 .cost-val {
   font-size: 14px;
   font-weight: 700;
   color: #f3d77d;
-  margin-top: 4px;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ready-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 0;
+  color: #bbf7d0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ready-indicator {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.65);
 }
 
 .orders-tag {
@@ -232,6 +383,23 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+.unit-empty-state {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 38px 16px;
+  border: 1px dashed rgba(212, 175, 55, 0.34);
+  border-radius: 16px;
+  color: #aab6c9;
+  text-align: center;
+}
+
+.unit-empty-state strong {
+  color: #f8fafc;
+  font-size: 16px;
 }
 
 .btn {
@@ -301,6 +469,113 @@ body {
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98));
   box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
+}
+
+.cashier-attendant-card {
+  margin-bottom: 18px;
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.cashier-attendant-card .attendant-shift-form {
+  flex-wrap: wrap;
+}
+
+.cashier-attendant-card .attendant-shift-form .form-control {
+  max-width: 260px;
+}
+
+.admin-date-filter {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: end;
+  grid-template-areas:
+    "heading controls"
+    "message message";
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+}
+
+.admin-date-filter > div:first-child {
+  grid-area: heading;
+}
+
+.admin-date-filter h3 {
+  color: #f8fafc;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.admin-date-filter p {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.admin-date-filter-controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-date-field {
+  position: relative;
+  width: 230px;
+}
+
+.admin-date-filter-controls .admin-date-field label {
+  display: block;
+  margin-bottom: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-date-filter-controls .admin-date-field .form-control {
+  min-width: 0;
+  padding-right: 42px;
+}
+
+.admin-date-filter .calendar-input-field::after {
+  display: none;
+}
+
+.admin-date-filter .calendar-picker-button {
+  bottom: 8px;
+  top: auto;
+}
+
+.admin-date-filter-message {
+  grid-area: message;
+  color: #fbbf24 !important;
+  font-size: 12px !important;
+  text-align: right;
+}
+
+.admin-date-filter-message:empty {
+  display: none;
+}
+
+.admin-date-filter-message.error {
+  color: #fbbf24 !important;
+}
+
+.admin-date-filter-message.success {
+  color: #86efac !important;
+}
+
+/* Keep the range controls compact on wide screens and stacked on phones. */
+.admin-date-filter-controls > .btn {
+  white-space: nowrap;
+}
+
+.admin-date-filter-controls .admin-date-field input {
+  display: block;
 }
 
 .attendant-shift-header {
@@ -503,6 +778,7 @@ tr:last-child td {
 
 .order-modal-card {
   height: 90vh;
+  max-width: 900px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -511,6 +787,22 @@ tr:last-child td {
 .order-modal-card .form-group {
   flex-shrink: 0;
   margin-bottom: 10px;
+}
+
+.order-search-group {
+  margin-top: 2px;
+}
+
+.order-product-feedback {
+  flex-shrink: 0;
+  min-height: 0;
+  margin: -4px 0 8px;
+  color: #86efac;
+  font-size: 12px;
+}
+
+.order-product-feedback:empty {
+  display: none;
 }
 
 .order-add-button {
@@ -530,23 +822,36 @@ tr:last-child td {
   min-height: 0;
   overflow-y: auto;
   align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
   padding: 0 4px 4px 0;
 }
 
 .order-product-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(212, 175, 55, 0.22);
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(241,245,249,0.96));
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+  box-shadow: 0 6px 14px rgba(2, 6, 23, 0.18);
+}
+
+.order-product-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  color: #cbd5e1;
+  font-size: 13px;
+  text-align: center;
 }
 
 .order-product-thumb {
-  width: 50px;
-  height: 50px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -568,7 +873,7 @@ tr:last-child td {
 .order-product-name {
   font-weight: 700;
   font-size: 13px;
-  color: #0f172a;
+  color: #f8fafc;
   line-height: 1.3;
   margin-bottom: 3px;
 }
@@ -585,15 +890,17 @@ tr:last-child td {
 
 .order-product-meta {
   font-size: 10px;
-  color: #475569;
+  color: #cbd5e1;
   line-height: 1.4;
 }
 
 .order-product-controls {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 .order-qty-control {
@@ -904,6 +1211,26 @@ tr:last-child td {
   .units-grid {
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   }
+
+  .cashier-heading {
+    padding: 18px;
+  }
+
+  .admin-date-filter {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "heading"
+      "controls"
+      "message";
+  }
+
+  .admin-date-filter-controls {
+    flex-wrap: wrap;
+  }
+
+  .admin-date-field {
+    flex: 1 1 220px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -940,6 +1267,29 @@ tr:last-child td {
   .units-grid,
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cashier-heading-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cashier-quick-stats {
+    width: 100%;
+  }
+
+  .quick-stat {
+    flex: 1;
+  }
+
+  .unit-catalog-tools {
+    flex-direction: column;
+  }
+
+  .unit-catalog-tools input,
+  .unit-catalog-tools select {
+    flex: 1 1 auto;
+    width: 100%;
   }
 
   .cashflow-entry-grid {
@@ -1009,6 +1359,36 @@ tr:last-child td {
 
   .attendant-shift-form .form-control {
     max-width: none;
+  }
+
+  .cashier-attendant-card .attendant-shift-form .form-control {
+    max-width: none;
+  }
+
+  .admin-date-filter {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "heading"
+      "controls"
+      "message";
+  }
+
+  .admin-date-filter-controls {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+
+  .admin-date-filter-controls,
+  .admin-date-filter-controls .admin-date-field {
+    width: 100%;
+  }
+
+  .admin-date-filter-controls .admin-date-field .form-control {
+    min-width: 0;
+  }
+
+  .admin-date-filter-controls > .btn {
+    width: 100%;
   }
 
   .history-filter-controls {

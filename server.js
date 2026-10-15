@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = __dirname;
 const DATA_FILE = path.join(ROOT_DIR, 'data.json');
 
@@ -33,7 +33,7 @@ function writeDbToFile(data) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === '/api/db') {
     if (req.method === 'GET') {
@@ -93,6 +93,33 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+function listenOnAvailablePort(port, attempts = 0) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error(`Port tidak valid: ${port}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const handleListenError = error => {
+    if (error.code === 'EADDRINUSE' && port > 0 && attempts < 20 && port < 65535) {
+      server.removeListener('error', handleListenError);
+      const nextPort = port + 1;
+      console.warn(`Port ${port} sedang digunakan. Mencoba port ${nextPort}...`);
+      listenOnAvailablePort(nextPort, attempts + 1);
+      return;
+    }
+
+    console.error(`Gagal menjalankan server pada port ${port}: ${error.message}`);
+    process.exitCode = 1;
+  };
+
+  server.once('error', handleListenError);
+  server.listen(port, () => {
+    server.removeListener('error', handleListenError);
+    const address = server.address();
+    const activePort = address && typeof address === 'object' ? address.port : port;
+    console.log(`Server running at http://localhost:${activePort}`);
+  });
+}
+
+listenOnAvailablePort(PORT);

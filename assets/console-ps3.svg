@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-labelledby="title">
+  <title id="title">Konsol PS3 hitam dengan controller</title>
+  <defs>
+    <linearGradient id="background" x2="0" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#eceef1"/>
+    </linearGradient>
+    <linearGradient id="top" x1=".1" y1="0" x2=".9" y2="1">
+      <stop stop-color="#55565a"/>
+      <stop offset=".52" stop-color="#303135"/>
+      <stop offset="1" stop-color="#17181b"/>
+    </linearGradient>
+    <linearGradient id="front" x2="0" y2="1">
+      <stop stop-color="#26272a"/>
+      <stop offset=".5" stop-color="#08090a"/>
+      <stop offset="1" stop-color="#3b3c3e"/>
+    </linearGradient>
+    <linearGradient id="controller" x2="0" y2="1">
+      <stop stop-color="#3d3e42"/>
+      <stop offset=".55" stop-color="#111214"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="640" rx="24" fill="url(#background)"/>
+  <g transform="translate(0 40) scale(1 1.4)">
+  <ellipse cx="320" cy="344" rx="255" ry="20" fill="#17181a" opacity=".24" filter="url(#shadow)"/>
+  <g>
+    <path d="M48 247 193 104q17-17 37-12l354 83q20 5 7 20L451 333q-11 12-32 8L58 267q-21-4-10-20Z" fill="url(#top)" stroke="#68696c" stroke-width="3"/>
+    <path d="m52 247 369 79q18 4 30-8l19-21-2 29q-1 13-18 17l-46 13q-14 4-29 0L56 291q-17-4-16-21Z" fill="url(#front)" stroke="#1b1c1e" stroke-width="2"/>
+    <path d="m56 261 363 78q16 3 29-6" fill="none" stroke="#77787a" stroke-width="3" opacity=".8"/>
+    <path d="m64 276 336 72" fill="none" stroke="#050607" stroke-width="7"/>
+    <path d="m237 293 176 38q11 2 18-5l11-11-3 20q-1 8-11 10l-12 3q-8 2-17 0l-173-38Z" fill="#050607" stroke="#555659" stroke-width="2"/>
+    <path d="m249 301 162 35" fill="none" stroke="#77797c" stroke-width="3"/>
+    <path d="m256 307 145 31" fill="none" stroke="#111214" stroke-width="5"/>
+    <path d="m216 304 13 3 6 8-14-3Z" fill="#e7e8ea"/>
+    <circle cx="446" cy="344" r="7" fill="#96989a" stroke="#161719" stroke-width="2"/>
+    <circle cx="474" cy="350" r="5" fill="#66686a" stroke="#111214" stroke-width="2"/>
+    <text x="72" y="274" fill="#9a9b9d" font-family="Arial,sans-serif" font-size="8" letter-spacing="1">SONY</text>
+    <text x="405" y="202" transform="rotate(12 405 202)" fill="#111214" opacity=".78" font-family="Arial,sans-serif" font-size="27" font-style="italic" font-weight="700">PS3</text>
+  </g>
+  <g transform="rotate(-13 504 267)">
+    <path d="M457 239q8-19 28-16l24 8 18-2q17-2 25 14l16 38q6 15-7 23l-12 8q-13 8-22-4l-15-19-31 1-15 21q-9 12-23 4l-13-8q-14-8-7-23Z" fill="url(#controller)" stroke="#55575a" stroke-width="3"/>
+    <path d="M477 241v27m-13-13h27" stroke="#c3c5c8" stroke-width="7"/>
+    <circle cx="530" cy="244" r="9" fill="#090a0c" stroke="#64666a" stroke-width="2"/>
+    <circle cx="550" cy="255" r="9" fill="#090a0c" stroke="#64666a" stroke-width="2"/>
+    <circle cx="530" cy="266" r="9" fill="#090a0c" stroke="#64666a" stroke-width="2"/>
+    <circle cx="510" cy="255" r="9" fill="#090a0c" stroke="#64666a" stroke-width="2"/>
+    <circle cx="530" cy="255" r="14" fill="#1a1b1e" stroke="#737579" stroke-width="4"/>
+    <circle cx="489" cy="278" r="14" fill="#17181b" stroke="#65676b" stroke-width="4"/>
+    <circle cx="536" cy="291" r="14" fill="#17181b" stroke="#65676b" stroke-width="4"/>
+    <circle cx="561" cy="239" r="4" fill="#d67281"/>
+    <circle cx="570" cy="249" r="4" fill="#6d9cc5"/>
+    <circle cx="561" cy="258" r="4" fill="#78a47b"/>
+    <circle cx="552" cy="249" r="4" fill="#d0bd74"/>
+    <path d="M495 231h20" stroke="#acafb3" stroke-width="2"/>
+    <text x="500" y="230" fill="#bfc1c4" font-family="Arial,sans-serif" font-size="7" letter-spacing="1">SONY</text>
+  </g>
+  </g>
+</svg>

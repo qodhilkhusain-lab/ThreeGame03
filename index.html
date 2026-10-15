@@ -27,10 +27,44 @@
 
     <!-- TAB 1: KASIR -->
     <section id="tab-kasir" class="tab-content active">
-      <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
-        <h2 style="font-size: 18px;">Daftar Unit PlayStation</h2>
-        <span style="font-size: 13px; color: #64748b;">Klik <strong>Mulai</strong> saat pelanggan datang</span>
-      </div>
+      <section class="attendant-shift-card cashier-attendant-card" aria-labelledby="cashierAttendantTitle">
+        <div class="attendant-shift-header">
+          <div>
+            <h3 id="cashierAttendantTitle">Petugas di Depan</h3>
+            <p id="cashierAttendantStatus" role="status">Masukkan nama karyawan sebelum memulai transaksi.</p>
+          </div>
+          <form class="attendant-shift-form" onsubmit="setAttendantShift(event, 'cashierAttendantNameInput')">
+            <label class="visually-hidden" for="cashierAttendantNameInput">Nama karyawan</label>
+            <input type="text" id="cashierAttendantNameInput" class="form-control" maxlength="80" placeholder="Nama karyawan yang bertugas" required>
+            <button type="submit" class="btn btn-primary">Mulai Shift</button>
+            <button type="button" id="finishAttendantShiftButton" class="btn btn-danger" onclick="endAttendantShift()" hidden>Selesai Shift</button>
+          </form>
+        </div>
+      </section>
+      <section class="cashier-heading" aria-labelledby="unitCatalogTitle">
+        <div class="cashier-heading-main">
+          <div>
+            <p class="eyebrow">THREE GAME RENTAL</p>
+            <h2 id="unitCatalogTitle">Pilih Unit untuk Disewakan</h2>
+            <p class="cashier-heading-description">Pilih TV yang tersedia untuk memulai sesi. Unit yang waktunya paling dekat selesai tampil lebih dulu.</p>
+          </div>
+          <div class="cashier-quick-stats" aria-label="Ringkasan unit">
+            <div class="quick-stat"><span id="unitCountAvailable">0</span><small>Tersedia</small></div>
+            <div class="quick-stat"><span id="unitCountRunning">0</span><small>Sedang main</small></div>
+          </div>
+        </div>
+        <div class="unit-catalog-tools">
+          <label class="visually-hidden" for="unitSearch">Cari nomor TV</label>
+          <input type="search" id="unitSearch" class="form-control" placeholder="Cari nomor TV..." autocomplete="off">
+          <label class="visually-hidden" for="unitCategoryFilter">Filter kategori PlayStation</label>
+          <select id="unitCategoryFilter" class="form-control">
+            <option value="all">Semua PlayStation</option>
+            <option value="PS 3">PlayStation 3</option>
+            <option value="PS 4">PlayStation 4</option>
+            <option value="PS 5">PlayStation 5</option>
+          </select>
+        </div>
+      </section>
       <div class="units-grid" id="unitsGrid"></div>
     </section>
 
@@ -186,7 +220,7 @@
 
     <!-- TAB 3: ADMIN -->
     <section id="tab-admin" class="tab-content">
-      <h2 style="margin-bottom: 20px;">Manajemen Item Minuman, Makanan & Tarif PS</h2>
+      <h2 style="margin-bottom: 20px;">Manajemen Katalog & Tarif Unit</h2>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
 
@@ -226,18 +260,30 @@
           </form>
         </div>
 
-        <!-- Form Tambah Unit PS -->
+        <!-- Form Tambah Unit -->
         <div style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); color:#e2e8f0; padding:20px; border-radius:12px; border:1px solid rgba(212, 175, 55, 0.2); box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);">
           <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Tambah Unit Baru</h3>
           <form onsubmit="addNewUnit(event)">
             <div class="form-group">
-              <label>Nama Unit</label>
-              <input type="text" id="adminUnitName" class="form-control" placeholder="Contoh: PS 5 #3 atau TV 1" required>
+              <label for="adminUnitCategory">Kategori PlayStation</label>
+              <select id="adminUnitCategory" class="form-control">
+                <option value="PS 3">PlayStation 3</option>
+                <option value="PS 4">PlayStation 4</option>
+                <option value="PS 5">PlayStation 5</option>
+              </select>
             </div>
             <div class="form-group">
-              <label>Upload Gambar Unit</label>
+              <label for="adminUnitNumber">Nomor TV</label>
+              <input type="number" id="adminUnitNumber" class="form-control" min="1" step="1" placeholder="Contoh: 1" required>
+              <small id="adminUnitNamePreview" style="display:block; margin-top:6px; color:#cbd5e1;">Katalog: 1 · PlayStation 3</small>
+            </div>
+            <div class="form-group">
+              <label for="adminUnitImageUpload">Gambar Unit (opsional)</label>
               <input type="file" id="adminUnitImageUpload" class="form-control" accept="image/*">
               <input type="hidden" id="adminUnitImage">
+              <div class="unit-upload-preview">
+                <img id="adminUnitImagePreview" src="assets/console-ps3.svg" alt="Pratinjau gambar unit">
+              </div>
             </div>
             <div class="form-group">
               <label>Tarif per Jam (Rp)</label>
@@ -247,7 +293,7 @@
           </form>
 
           <div style="margin-top:20px;">
-            <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Pengaturan Tarif Unit PS</h3>
+            <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Pengaturan Tarif Unit TV & PlayStation</h3>
             <div class="table-wrapper">
               <table>
                 <thead>
@@ -284,6 +330,31 @@
           </table>
         </div>
       </div>
+
+      <section class="admin-date-filter" aria-label="Filter data admin berdasarkan tanggal">
+        <div>
+          <h3>Kelola Data per Tanggal</h3>
+          <p>Pilih rentang tanggal agar transaksi, pengeluaran, dan shift tidak bercampur.</p>
+        </div>
+        <div class="admin-date-filter-controls">
+          <div class="admin-date-field calendar-input-field">
+            <label for="adminStartDate">Dari</label>
+            <input type="date" id="adminStartDate" class="form-control calendar-date-input" aria-label="Tanggal awal data admin" onchange="renderAdminDateData()">
+            <button type="button" class="calendar-picker-button" aria-label="Buka kalender tanggal awal admin" onclick="openDatePicker('adminStartDate')">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"/></svg>
+            </button>
+          </div>
+          <div class="admin-date-field calendar-input-field">
+            <label for="adminEndDate">Sampai</label>
+            <input type="date" id="adminEndDate" class="form-control calendar-date-input" aria-label="Tanggal akhir data admin" onchange="renderAdminDateData()">
+            <button type="button" class="calendar-picker-button" aria-label="Buka kalender tanggal akhir admin" onclick="openDatePicker('adminEndDate')">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"/></svg>
+            </button>
+          </div>
+          <button class="btn btn-secondary" type="button" onclick="clearAdminDateFilter()">Semua Tanggal</button>
+        </div>
+        <p id="adminDateFilterMessage" class="admin-date-filter-message" role="status">Pilih tanggal awal dan tanggal akhir untuk melihat data.</p>
+      </section>
 
       <div style="margin-top:24px;">
         <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Kelola Riwayat Jaga Petugas</h3>
@@ -398,7 +469,13 @@
         </select>
       </div>
 
+      <div class="form-group order-search-group">
+        <label for="orderProductSearch">Cari menu</label>
+        <input type="search" id="orderProductSearch" class="form-control" placeholder="Cari nama atau kategori menu..." autocomplete="off">
+      </div>
+
       <button id="addSelectedItemsButton" class="btn btn-success order-add-button" type="button" onclick="addSelectedItemsToUnit()" disabled>+ Pilih Menu Terlebih Dahulu</button>
+      <p id="orderProductFeedback" class="order-product-feedback" role="status" aria-live="polite"></p>
 
       <div id="orderProductList" class="order-product-list"></div>
     </div>
@@ -540,20 +617,12 @@
 
       <form onsubmit="saveUnitEdit(event)">
         <div class="form-group">
-          <label>Nama Unit</label>
-          <input type="text" id="editUnitName" class="form-control" required>
+          <label>Nomor TV</label>
+          <input type="number" id="editUnitName" class="form-control" min="1" step="1" required>
         </div>
         <div class="form-group">
           <label>Jenis Unit</label>
           <input type="text" id="editUnitType" class="form-control" readonly>
-        </div>
-        <div class="form-group">
-          <label>Upload Gambar Unit</label>
-          <input type="file" id="editUnitImageUpload" class="form-control" accept="image/*">
-          <input type="hidden" id="editUnitImage">
-          <div style="margin-top:12px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(148,163,184,0.35); border-radius:12px; min-height:120px; background: rgba(15,23,42,0.65);">
-            <img id="editUnitImagePreview" src="assets/placeholder-unit.svg" alt="Preview unit" style="width:110px; height:110px; object-fit:cover; border-radius:12px; display:block;">
-          </div>
         </div>
         <div class="form-group">
           <label>Tarif per Jam (Rp)</label>
