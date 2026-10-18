@@ -31,7 +31,8 @@
       "status": "ready",
       "startTime": null,
       "targetMinutes": 0,
-      "orderItems": []
+      "orderItems": [],
+      "payments": []
     },
     {
       "id": "u1792081709082",
@@ -119,7 +120,8 @@
       "status": "ready",
       "startTime": null,
       "targetMinutes": 0,
-      "orderItems": []
+      "orderItems": [],
+      "payments": []
     },
     {
       "id": "u1792082336845",
@@ -352,6 +354,136 @@
     }
   ],
   "history": [
+    {
+      "id": "TRX-887179",
+      "date": "18/10/2026 22.21",
+      "shiftId": "SHIFT-1792077320546-c27mdv",
+      "attendantName": "ooojo",
+      "unitName": "TV 03",
+      "durationText": "30 menit (Paket) · 10 menit dimainkan • 22.11 - 22.21",
+      "startTime": 1792336272200,
+      "endTime": 1792336887179,
+      "rentalCost": 2500,
+      "itemsCost": 7000,
+      "items": [
+        {
+          "id": "p2",
+          "name": "Es/Hot Good Day",
+          "category": "Minuman",
+          "price": 4000,
+          "qty": 1,
+          "paidQty": 0
+        },
+        {
+          "id": "p3",
+          "name": "Es/Hot Nutrisari",
+          "category": "Minuman",
+          "price": 3000,
+          "qty": 1,
+          "paidQty": 0
+        }
+      ],
+      "totalCost": 9500,
+      "paidAmount": 9500,
+      "remainingAmount": 0,
+      "payments": [
+        {
+          "amount": 2500,
+          "method": "Tunai",
+          "type": "rental",
+          "timestamp": 1792336272200
+        },
+        {
+          "amount": 7000,
+          "method": "Tunai",
+          "type": "checkout",
+          "timestamp": 1792336887179
+        }
+      ],
+      "paymentMethod": "Tunai"
+    },
+    {
+      "id": "TRX-251195",
+      "date": "18/10/2026 22.10",
+      "shiftId": "SHIFT-1792077320546-c27mdv",
+      "attendantName": "ooojo",
+      "unitName": "TV 01",
+      "durationText": "2 jam (Paket) · 38 menit dimainkan • 21.32 - 22.10",
+      "startTime": 1792333963561,
+      "endTime": 1792336251195,
+      "rentalCost": 16000,
+      "itemsCost": 4000,
+      "items": [
+        {
+          "id": "p1791554207940",
+          "name": "Snack 2K",
+          "category": "Snack",
+          "price": 2000,
+          "qty": 2,
+          "paidQty": 2
+        }
+      ],
+      "totalCost": 20000,
+      "paidAmount": 20000,
+      "remainingAmount": 0,
+      "payments": [
+        {
+          "amount": 16000,
+          "method": "Tunai",
+          "type": "rental",
+          "timestamp": 1792335617334
+        },
+        {
+          "amount": 4000,
+          "method": "Tunai",
+          "type": "menu",
+          "timestamp": 1792335858013
+        }
+      ],
+      "paymentMethod": "Tunai"
+    },
+    {
+      "id": "TRX-886223",
+      "date": "18/10/2026 21.31",
+      "shiftId": "SHIFT-1792077320546-c27mdv",
+      "attendantName": "ooojo",
+      "unitName": "TV 01",
+      "durationText": "2 jam (Paket) · 5 menit dimainkan • 21.26 - 21.31",
+      "startTime": 1792333570520,
+      "endTime": 1792333886223,
+      "rentalCost": 16000,
+      "itemsCost": 3000,
+      "items": [
+        {
+          "id": "p1791554207940",
+          "name": "Snack 2K",
+          "category": "Snack",
+          "price": 2000,
+          "qty": 1,
+          "paidQty": 0
+        },
+        {
+          "id": "p1791554235654",
+          "name": "Snack 1K",
+          "category": "Snack",
+          "price": 1000,
+          "qty": 1,
+          "paidQty": 0
+        }
+      ],
+      "totalCost": 19000,
+      "paidAmount": 19000,
+      "remainingAmount": 0,
+      "payments": [
+        {
+          "amount": 19000,
+          "method": "Tunai",
+          "type": "checkout",
+          "timestamp": 1792333886223
+        }
+      ],
+      "paymentMethod": "Tunai"
+    },
     {
       "id": "TRX-762509",
       "date": "15/10/2026 23.46",

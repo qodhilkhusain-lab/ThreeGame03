@@ -1090,6 +1090,11 @@ tr:last-child td {
   box-shadow: 0 10px 16px rgba(212,175,55,0.18);
 }
 
+.d-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .receipt-box {
   background: rgba(15, 23, 42, 0.9);
   border: 1px dashed rgba(212, 175, 55, 0.25);
@@ -1130,6 +1135,27 @@ tr:last-child td {
 .receipt-item-details {
   display: grid;
   gap: 2px;
+}
+
+.running-menu-payment-items {
+  display: grid;
+  gap: 10px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+
+.running-menu-payment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+}
+
+.running-menu-payment-qty {
+  text-align: center;
 }
 
 .receipt-item-details span,
@@ -1409,4 +1435,106 @@ tr:last-child td {
   .history-date-input {
     font-size: 16px;
   }
+}
+
+.admin-section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 8px;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.admin-section-tab {
+  flex: 1 1 150px;
+  padding: 10px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 9px;
+  color: #cbd5e1;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-section-tab.active {
+  color: #111827;
+  border-color: #d4af37;
+  background: linear-gradient(135deg, #d4af37, #b8891e);
+}
+
+.initial-rental-orders {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.initial-rental-orders h4 {
+  margin: 0 0 10px;
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.initial-rental-product-list {
+  display: grid;
+  gap: 7px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.initial-order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.initial-order-row span,
+.initial-order-row small {
+  display: block;
+}
+
+.initial-order-row small {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.initial-order-row input {
+  width: 84px;
+  flex: 0 0 84px;
+  color: #111827;
+  background: #fff;
+}
+
+.payment-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.payment-option input {
+  width: 16px;
+  height: 16px;
+}
+
+.duration-edit-note {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #854d0e;
+  background: #fef3c7;
+  font-size: 12px;
+  line-height: 1.5;
 }

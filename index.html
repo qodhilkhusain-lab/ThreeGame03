@@ -82,16 +82,16 @@
       <!-- Ringkasan Keuangan -->
       <div class="stats-grid">
         <div class="stat-card green">
-          <div class="label">Total Omset Pendapatan</div>
+          <div class="label">Uang Masuk</div>
           <div class="value" id="statTotalOmset">Rp 0</div>
         </div>
         <div class="stat-card blue">
-          <div class="label">Pendapatan Rental PS</div>
-          <div class="value" id="statTotalRental">Rp 0</div>
+          <div class="label">Total Tagihan</div>
+          <div class="value" id="statTotalBilled">Rp 0</div>
         </div>
-        <div class="stat-card amber">
-          <div class="label">Pendapatan Minuman & Snack</div>
-          <div class="value" id="statTotalFnb">Rp 0</div>
+        <div class="stat-card blue">
+          <div class="label">Tagihan Rental PS</div>
+          <div class="value" id="statTotalRental">Rp 0</div>
         </div>
         <div class="stat-card">
           <div class="label">Total Transaksi Selesai</div>
@@ -148,11 +148,11 @@
             <button type="submit" class="btn btn-primary">Mulai / Ganti Petugas</button>
           </form>
         </div>
-        <p class="attendant-shift-note">Pergantian nama menutup masa jaga sebelumnya. Omzet dihitung dari transaksi yang dibayar selama masa jaga.</p>
+        <p class="attendant-shift-note">Pergantian nama menutup masa jaga sebelumnya. Rincian omzet menampilkan tagihan rental dan menu yang tercatat selama masa jaga.</p>
         <div class="table-wrapper">
           <table>
             <thead>
-              <tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Transaksi</th><th>Total Omzet</th></tr>
+              <tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Transaksi</th><th>Omzet Keseluruhan</th><th>Rental PS</th><th>Minuman</th><th>Makanan</th><th>Snack</th></tr>
             </thead>
             <tbody id="attendantShiftTableBody"></tbody>
           </table>
@@ -209,7 +209,9 @@
               <th>Unit & Durasi</th>
               <th>Biaya Rental</th>
               <th>Minuman/Snack</th>
-              <th>Total Bayar</th>
+              <th>Total Tagihan</th>
+              <th>Sudah Dibayar</th>
+              <th>Sisa Tagihan</th>
               <th>Metode</th>
             </tr>
           </thead>
@@ -221,9 +223,13 @@
     <!-- TAB 3: ADMIN -->
     <section id="tab-admin" class="tab-content">
       <h2 style="margin-bottom: 20px;">Manajemen Katalog & Tarif Unit</h2>
+      <nav class="admin-section-tabs" aria-label="Bagian administrasi">
+        <button class="admin-section-tab active" type="button" onclick="showAdminPanel('catalog', this)">Unit & Tarif</button>
+        <button class="admin-section-tab" type="button" onclick="showAdminPanel('products', this)">Barang & Stok</button>
+        <button class="admin-section-tab" type="button" onclick="showAdminPanel('reports', this)">Riwayat & Shift</button>
+      </nav>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-
+      <div id="adminPanelProducts" class="admin-panel" hidden>
         <!-- Form Tambah Produk Minuman/Makanan -->
         <div style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); color:#e2e8f0; padding:20px; border-radius:12px; border:1px solid rgba(212, 175, 55, 0.2); box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);">
           <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Tambah Item Baru (Minuman/Makanan)</h3>
@@ -260,6 +266,20 @@
           </form>
         </div>
 
+        <div style="margin-top:24px;">
+          <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Daftar Stok Minuman & Makanan</h3>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Produk</th><th>Kategori</th><th>Harga Jual</th><th>Sisa Stok</th><th>Aksi</th></tr>
+              </thead>
+              <tbody id="adminProductTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="adminPanelCatalog" class="admin-panel">
         <!-- Form Tambah Unit -->
         <div style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98)); color:#e2e8f0; padding:20px; border-radius:12px; border:1px solid rgba(212, 175, 55, 0.2); box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);">
           <h3 style="font-size:16px; margin-bottom:14px; color:#f8fafc;">Tambah Unit Baru</h3>
@@ -309,28 +329,9 @@
             </div>
           </div>
         </div>
-
       </div>
 
-      <!-- Tabel Daftar Produk Minuman / Makanan -->
-      <div style="margin-top:24px;">
-        <h3 style="font-size:16px; margin-bottom:12px; color:#f8fafc;">Daftar Stok Minuman & Makanan</h3>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Produk</th>
-                <th>Kategori</th>
-                <th>Harga Jual</th>
-                <th>Sisa Stok</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody id="adminProductTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-
+      <div id="adminPanelReports" class="admin-panel" hidden>
       <section class="admin-date-filter" aria-label="Filter data admin berdasarkan tanggal">
         <div>
           <h3>Kelola Data per Tanggal</h3>
@@ -366,7 +367,11 @@
                 <th>Mulai Jaga</th>
                 <th>Selesai Jaga</th>
                 <th>Transaksi</th>
-                <th>Total Omzet</th>
+                <th>Omzet Keseluruhan</th>
+                <th>Rental PS</th>
+                <th>Minuman</th>
+                <th>Makanan</th>
+                <th>Snack</th>
                 <th>Aksi</th>
               </tr>
             </thead>
@@ -384,7 +389,9 @@
                 <th>ID</th>
                 <th>Waktu</th>
                 <th>Unit</th>
-                <th>Total</th>
+                <th>Total Tagihan</th>
+                <th>Dibayar</th>
+                <th>Sisa</th>
                 <th>Metode</th>
                 <th>Aksi</th>
               </tr>
@@ -410,6 +417,7 @@
             <tbody id="adminExpenseTableBody"></tbody>
           </table>
         </div>
+      </div>
       </div>
     </section>
 
@@ -447,7 +455,25 @@
         <em>*Mode LOSS: Biaya dihitung per menit/detik proporsional sesuai lama main.</em>
       </p>
 
-      <button class="btn btn-primary" style="width: 100%;" onclick="confirmStartRental()">Mulai Main Sekarang</button>
+      <section id="startRentalPrepayment" class="initial-rental-orders">
+        <h4>Pembayaran Rental PS</h4>
+        <p id="startRentalPrepaymentAmount" class="start-rental-prepayment-amount"></p>
+        <label class="payment-option"><input type="checkbox" id="startRentalPaidNow" onchange="updateStartRentalPrepaymentOption()"> Biaya rental paket dibayar sekarang</label>
+        <div id="startRentalPaymentMethodGroup" class="form-group">
+          <label for="startRentalPaymentMethod">Metode pembayaran rental PS</label>
+          <select id="startRentalPaymentMethod" class="form-control">
+            <option value="Tunai">Tunai (Cash)</option>
+            <option value="QRIS">QRIS / Transfer Bank</option>
+          </select>
+        </div>
+      </section>
+
+      <p id="durationEditNote" class="duration-edit-note" hidden></p>
+      <section id="initialRentalOrders" class="initial-rental-orders">
+        <h4>Menu tambahan saat mulai</h4>
+        <div id="initialRentalProductList" class="initial-rental-product-list"></div>
+      </section>
+      <button id="confirmStartRentalButton" class="btn btn-primary" style="width: 100%;" onclick="confirmStartRental()">Mulai Main Sekarang</button>
     </div>
   </div>
 
@@ -510,6 +536,14 @@
           <span>TOTAL TAGIHAN:</span>
           <span id="receiptTotal">Rp 0</span>
         </div>
+        <div class="receipt-row">
+          <span>Sudah dibayar:</span>
+          <span id="receiptAlreadyPaid">Rp 0</span>
+        </div>
+        <div class="receipt-row receipt-total">
+          <span>BIAYA YANG HARUS DIBAYAR:</span>
+          <strong id="receiptOutstanding">Rp 0</strong>
+        </div>
       </div>
 
       <div class="form-group">
@@ -520,7 +554,7 @@
         </select>
       </div>
 
-      <button class="btn btn-success" style="width: 100%;" onclick="processPayment()">✔ Lunas & Selesai</button>
+      <button class="btn btn-success" style="width: 100%;" onclick="processPayment()">Konfirmasi Pembayaran & Selesaikan</button>
     </div>
   </div>
 
@@ -544,24 +578,106 @@
           <span id="runningDetailsUnitRate">Rp 0 / jam</span>
         </div>
         <div class="receipt-row">
-          <span>Biaya Rental:</span>
+          <span id="runningDetailsRentalLabel">Biaya Rental:</span>
           <span id="runningDetailsRentalCost">Rp 0</span>
+        </div>
+        <div class="receipt-row">
+          <span>Rental sudah dibayar:</span>
+          <span id="runningDetailsPaidRental">Rp 0</span>
         </div>
         <div class="receipt-row">
           <span>Menu:</span>
           <span id="runningDetailsItemsCost">Rp 0</span>
+        </div>
+        <div class="receipt-row">
+          <span>Menu belum dibayar:</span>
+          <span id="runningDetailsUnpaidItems">Rp 0</span>
+        </div>
+        <div class="receipt-row">
+          <span>Sudah dibayar:</span>
+          <span id="runningDetailsPaidItems">Rp 0</span>
         </div>
         <div class="receipt-items-section">
           <strong>Menu yang Diambil</strong>
           <div id="runningDetailsItemsList" class="receipt-items-list"></div>
         </div>
         <div class="receipt-row receipt-total">
-          <span>TOTAL SAAT INI:</span>
+          <span>TOTAL BELUM DIBAYAR:</span>
           <span id="runningDetailsTotal">Rp 0</span>
         </div>
       </div>
+      <button id="payRunningRentalButton" class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="openRunningRentalPaymentModal()">Bayar Rental Paket Sekarang</button>
+      <button id="payRunningMenuButton" class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="openRunningMenuPaymentModal()">Bayar Menu Sekarang</button>
+      <button class="btn btn-secondary" style="width: 100%; margin-bottom: 12px;" onclick="editRunningUnitDuration()">⏱ Edit / Tambah Durasi</button>
       <button class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="addMenuFromRunningDetails()">➕ Tambah Menu</button>
       <button class="btn btn-danger" style="width: 100%;" onclick="continueRunningUnitToPayment()">⏹ Selesai & Lanjut Pembayaran</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalRunningMenuPayment">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Bayar Menu</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+      <p id="runningMenuPaymentSummary">Pilih jumlah menu yang akan dibayar.</p>
+      <div id="runningMenuPaymentItems" class="running-menu-payment-items"></div>
+      <div class="form-group">
+        <label for="runningMenuPaymentMethod">Metode pembayaran</label>
+        <select id="runningMenuPaymentMethod" class="form-control">
+          <option value="Tunai">Tunai (Cash)</option>
+          <option value="QRIS">QRIS / Transfer Bank</option>
+        </select>
+      </div>
+      <div class="receipt-row receipt-total">
+        <span>Total pembayaran menu:</span>
+        <span id="runningMenuPaymentTotal">Rp 0</span>
+      </div>
+      <button class="btn btn-success" style="width:100%; margin-top:12px;" onclick="recordRunningMenuPayment()">Simpan Pembayaran Menu</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalRunningRentalPayment">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Bayar Rental Paket</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+      <p id="runningRentalPaymentSummary"></p>
+      <div class="form-group">
+        <label for="runningRentalPaymentAmount">Pembayaran rental (Rp)</label>
+        <input type="number" id="runningRentalPaymentAmount" class="form-control" min="1" step="1" required>
+      </div>
+      <div class="form-group">
+        <label for="runningRentalPaymentMethod">Metode pembayaran</label>
+        <select id="runningRentalPaymentMethod" class="form-control">
+          <option value="Tunai">Tunai (Cash)</option>
+          <option value="QRIS">QRIS / Transfer Bank</option>
+        </select>
+      </div>
+      <button class="btn btn-success" style="width:100%;" onclick="recordRunningRentalPayment()">Simpan Pembayaran Rental</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalReceivePayment">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Catat Pembayaran Tagihan</h3>
+        <button class="close-btn" onclick="closeAllModals()">&times;</button>
+      </div>
+      <p id="receivePaymentSummary"></p>
+      <div class="form-group">
+        <label for="receivePaymentAmount">Jumlah pembayaran (Rp)</label>
+        <input type="number" id="receivePaymentAmount" class="form-control" min="1" step="1" required>
+      </div>
+      <div class="form-group">
+        <label for="receivePaymentMethod">Metode pembayaran</label>
+        <select id="receivePaymentMethod" class="form-control">
+          <option value="Tunai">Tunai (Cash)</option>
+          <option value="QRIS">QRIS / Transfer Bank</option>
+        </select>
+      </div>
+      <button class="btn btn-success" style="width:100%;" onclick="recordOutstandingPayment()">Simpan Pembayaran</button>
     </div>
   </div>
 

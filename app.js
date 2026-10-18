@@ -149,6 +149,8 @@ function updateAdminUnitNamePreview() {
 // Global active modal unit
 let activeUnitId = null;
 let chosenDurationMinutes = 0;
+let editingRentalDuration = false;
+let activeTransactionId = null;
 let editingProductId = null;
 let editingUnitId = null;
 let pendingAdminTab = null;
@@ -170,10 +172,20 @@ function activateTab(tabName) {
   if (tabName === 'kasir') renderUnits();
   if (tabName === 'riwayat') renderHistory();
   if (tabName === 'admin') {
+    showAdminPanel('catalog');
     renderAdminProducts();
     renderAdminUnits();
     renderAdminDateData();
   }
+}
+
+function showAdminPanel(panelName, button) {
+  document.querySelectorAll('.admin-panel').forEach(panel => {
+    panel.hidden = panel.id !== `adminPanel${panelName.charAt(0).toUpperCase()}${panelName.slice(1)}`;
+  });
+  document.querySelectorAll('.admin-section-tab').forEach(tab => tab.classList.remove('active'));
+  const activeButton = button || document.querySelector(`.admin-section-tab[onclick*="'${panelName}'"]`);
+  if (activeButton) activeButton.classList.add('active');
 }
 
 function openAdminLoginModal() {
@@ -267,6 +279,155 @@ function bindProductImageUpload() {
 // Helpers
 function formatRupiah(num) {
   return 'Rp ' + Number(num || 0).toLocaleString('id-ID');
+}
+
+function formatDurationDetail(totalSeconds) {
+  const totalMinutes = Math.max(0, Math.floor(Number(totalSeconds || 0) / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours && minutes) return `${hours} jam ${minutes} menit`;
+  if (hours) return `${hours} jam`;
+  return `${minutes} menit`;
+}
+
+function getTransactionPaidAmount(trx) {
+  if (Array.isArray(trx.payments)) {
+    return trx.payments.reduce((total, payment) => total + Math.max(0, Number(payment.amount) || 0), 0);
+  }
+  return Number.isFinite(Number(trx.paidAmount)) ? Number(trx.paidAmount) : Number(trx.totalCost) || 0;
+}
+
+function getTransactionPaymentSummary(trx) {
+  if (!Array.isArray(trx.payments) || trx.payments.length === 0) {
+    return getTransactionPaidAmount(trx) > 0
+      ? `Pembayaran lama (${escapeReportHtml(trx.paymentMethod || 'tercatat lunas')})`
+      : 'Belum ada pembayaran';
+  }
+  return trx.payments.map(payment => {
+    const paymentTime = Number(payment.timestamp);
+    const timeText = Number.isFinite(paymentTime) && paymentTime > 0
+      ? new Date(paymentTime).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : 'waktu tidak tercatat';
+    return `${escapeReportHtml(payment.method || 'Pembayaran')} ${formatRupiah(payment.amount)} · ${timeText}`;
+  }).join('<br>');
+}
+
+function getTransactionRemainingAmount(trx) {
+  return Math.max(0, (Number(trx.totalCost) || 0) - getTransactionPaidAmount(trx));
+}
+
+function isPaymentInHistoryPeriod(payment, transaction, filterKey, filterError) {
+  if (filterError) return false;
+  if (!filterKey || filterKey === 'all') return true;
+  const range = getHistoryFilterDateRange(filterKey);
+  if (!range.start || !range.end) return false;
+  const timestamp = Number(payment.timestamp);
+  const date = Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp)
+    : transaction ? parseTransactionDate(transaction.date) : new Date(NaN);
+  return !Number.isNaN(date.getTime()) && date >= range.start && date <= range.end;
+}
+
+function getCollectedPaymentsForPeriod(db, filterKey, filterError) {
+  let total = 0;
+  (db.history || []).forEach(trx => {
+    if (Array.isArray(trx.payments)) {
+      trx.payments.forEach(payment => {
+        if (isPaymentInHistoryPeriod(payment, trx, filterKey, filterError)) {
+          total += Math.max(0, Number(payment.amount) || 0);
+        }
+      });
+    } else if (matchesHistoryFilter(trx, filterKey) && !filterError) {
+      total += getTransactionPaidAmount(trx);
+    }
+  });
+  (db.units || []).forEach(unit => {
+    (unit.payments || []).forEach(payment => {
+      if (isPaymentInHistoryPeriod(payment, null, filterKey, filterError)) {
+        total += Math.max(0, Number(payment.amount) || 0);
+      }
+    });
+  });
+  return total;
+}
+
+function getPaymentReportRecords(db, filterKey, filterError) {
+  const records = [];
+  const addPayment = (payment, transaction, unitName) => {
+    if (!isPaymentInHistoryPeriod(payment, transaction, filterKey, filterError)) return;
+    const timestamp = Number(payment.timestamp);
+    const date = Number.isFinite(timestamp) && timestamp > 0
+      ? new Date(timestamp)
+      : transaction ? parseTransactionDate(transaction.date) : new Date();
+    records.push({
+      date,
+      transactionId: transaction ? transaction.id : 'Sesi berjalan',
+      unitName: transaction ? transaction.unitName : unitName,
+      method: payment.method || 'Tunai',
+      amount: Math.max(0, Number(payment.amount) || 0),
+      type: payment.type || 'legacy'
+    });
+  };
+
+  (db.history || []).forEach(trx => {
+    if (Array.isArray(trx.payments)) {
+      trx.payments.forEach(payment => addPayment(payment, trx, trx.unitName));
+    } else if (!filterError && matchesHistoryFilter(trx, filterKey) && getTransactionPaidAmount(trx) > 0) {
+      addPayment({ amount: getTransactionPaidAmount(trx), method: trx.paymentMethod }, trx, trx.unitName);
+    }
+  });
+  (db.units || []).forEach(unit => {
+    (unit.payments || []).forEach(payment => addPayment(payment, null, `TV ${getUnitDisplayName(unit.name)}`));
+  });
+  return records;
+}
+
+function getTransactionItemSummary(trx) {
+  return (trx.items || []).map(item =>
+    `${item.category || 'Menu'}: ${item.name} × ${item.qty} (${formatRupiah((Number(item.price) || 0) * (Number(item.qty) || 0))})`
+  ).join('; ');
+}
+
+function getTransactionItemBreakdown(trx) {
+  const breakdown = {
+    Minuman: { amount: 0, qty: 0 },
+    Makanan: { amount: 0, qty: 0 },
+    Snack: { amount: 0, qty: 0 }
+  };
+  (trx.items || []).forEach(item => {
+    const category = breakdown[item.category] ? item.category : null;
+    if (!category) return;
+    const qty = Number(item.qty) || 0;
+    breakdown[category].qty += qty;
+    breakdown[category].amount += (Number(item.price) || 0) * qty;
+  });
+  return breakdown;
+}
+
+function getUnitPaidMenuAmount(unit) {
+  return (unit.orderItems || []).reduce((total, item) => {
+    const paidQty = Math.min(Number(item.qty) || 0, Math.max(0, Number(item.paidQty) || 0));
+    return total + (Number(item.price) || 0) * paidQty;
+  }, 0);
+}
+
+function getUnitUnpaidMenuAmount(unit) {
+  return (unit.orderItems || []).reduce((total, item) => {
+    const paidQty = Math.max(0, Math.min(Number(item.qty) || 0, Number(item.paidQty) || 0));
+    const unpaidQty = Math.max(0, (Number(item.qty) || 0) - paidQty);
+    return total + (Number(item.price) || 0) * unpaidQty;
+  }, 0);
+}
+
+function getUnitPaidRentalAmount(unit) {
+  if (Number.isFinite(Number(unit.rentalPaidAmount))) return Math.max(0, Number(unit.rentalPaidAmount));
+  return (unit.payments || [])
+    .filter(payment => payment.type === 'rental')
+    .reduce((total, payment) => total + Math.max(0, Number(payment.amount) || 0), 0);
+}
+
+function getUnitOutstandingAmount(unit, rentalCost) {
+  return Math.max(0, rentalCost - getUnitPaidRentalAmount(unit)) + getUnitUnpaidMenuAmount(unit);
 }
 
 function calculateCost(ratePerHour, elapsedSec, targetMinutes) {
@@ -462,6 +623,7 @@ function renderUnits() {
 
     const itemsCost = (unit.orderItems || []).reduce((acc, item) => acc + (item.price * item.qty), 0);
     const totalCurrentCost = rentalCost + itemsCost;
+    const outstandingAmount = getUnitOutstandingAmount(unit, rentalCost);
 
     const unitType = getUnitType(unit);
 
@@ -482,12 +644,13 @@ function renderUnits() {
           ${isRunning ? `
             <div class="timer-caption">${unit.targetMinutes > 0 ? 'Sisa waktu' : 'Durasi berjalan'}</div>
             <div class="timer-val">${timerLabel.replace(/^Sisa /, '')}</div>
-            <div class="cost-caption">Total sementara</div>
-            <div class="cost-val">${formatRupiah(totalCurrentCost)}</div>
+            <div class="cost-caption">Sisa tagihan</div>
+            <div class="cost-val">${formatRupiah(outstandingAmount)}</div>
           ` : `
             <div class="ready-message"><span class="ready-indicator"></span>Unit siap untuk disewakan</div>
           `}
           ${itemsCost > 0 ? `<div class="orders-tag">+ Minuman/Snack: ${formatRupiah(itemsCost)}</div>` : ''}
+          ${isRunning ? `<div class="orders-tag">Total berjalan: ${formatRupiah(totalCurrentCost)}</div>` : ''}
           ${isRunning ? '<div class="unit-details-hint">Tekan kartu untuk rincian biaya</div>' : ''}
         </div>
       </div>
@@ -518,8 +681,14 @@ function openRunningUnitDetails(unitId) {
   const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((total, item) => total + item.price * item.qty, 0);
+  const paidMenuAmount = getUnitPaidMenuAmount(unit);
+  const unpaidMenuAmount = getUnitUnpaidMenuAmount(unit);
+  const paidRentalAmount = getUnitPaidRentalAmount(unit);
+  const outstandingAmount = getUnitOutstandingAmount(unit, rentalCost);
 
   document.getElementById('runningDetailsUnitName').textContent = getUnitDisplayName(unit.name);
+  const rentalLabel = document.getElementById('runningDetailsRentalLabel');
+  if (rentalLabel) rentalLabel.textContent = Number(unit.targetMinutes) > 0 ? 'Biaya Rental Paket:' : 'Biaya Rental LOSS:';
   const playMode = unit.targetMinutes > 0
     ? `${unit.targetMinutes} Menit (Paket)`
     : 'Mode LOSS';
@@ -528,7 +697,17 @@ function openRunningUnitDetails(unitId) {
   document.getElementById('runningDetailsUnitRate').textContent = `${formatRupiah(unit.ratePerHour)} / jam`;
   document.getElementById('runningDetailsRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('runningDetailsItemsCost').textContent = formatRupiah(itemsCost);
-  document.getElementById('runningDetailsTotal').textContent = formatRupiah(rentalCost + itemsCost);
+  document.getElementById('runningDetailsTotal').textContent = formatRupiah(outstandingAmount);
+  const paidLabel = document.getElementById('runningDetailsPaidItems');
+  if (paidLabel) paidLabel.textContent = formatRupiah(paidMenuAmount + paidRentalAmount);
+  const paidRentalLabel = document.getElementById('runningDetailsPaidRental');
+  if (paidRentalLabel) paidRentalLabel.textContent = formatRupiah(paidRentalAmount);
+  const unpaidMenuLabel = document.getElementById('runningDetailsUnpaidItems');
+  if (unpaidMenuLabel) unpaidMenuLabel.textContent = formatRupiah(unpaidMenuAmount);
+  const rentalPaymentButton = document.getElementById('payRunningRentalButton');
+  if (rentalPaymentButton) rentalPaymentButton.hidden = !(Number(unit.targetMinutes) > 0 && rentalCost > paidRentalAmount);
+  const menuPaymentButton = document.getElementById('payRunningMenuButton');
+  if (menuPaymentButton) menuPaymentButton.hidden = unpaidMenuAmount <= 0;
 
   const itemsList = document.getElementById('runningDetailsItemsList');
   itemsList.replaceChildren();
@@ -547,15 +726,22 @@ function openRunningUnitDetails(unitId) {
       const name = document.createElement('strong');
       name.textContent = item.name;
       const quantity = document.createElement('span');
-      quantity.textContent = `${item.qty} x ${formatRupiah(item.price)}`;
+      const paidQty = Math.max(0, Math.min(Number(item.qty) || 0, Number(item.paidQty) || 0));
+      const unpaidQty = Math.max(0, (Number(item.qty) || 0) - paidQty);
+      quantity.textContent = `${item.category || 'Menu'} · ${paidQty} lunas${unpaidQty ? `, ${unpaidQty} belum dibayar` : ''}`;
       details.append(name, quantity);
 
       const subtotal = document.createElement('strong');
-      subtotal.textContent = formatRupiah(item.price * item.qty);
+      subtotal.textContent = `Sisa ${formatRupiah(item.price * unpaidQty)}`;
       row.append(details, subtotal);
       itemsList.appendChild(row);
     });
   }
+
+  const paidMenuSummary = document.createElement('p');
+  paidMenuSummary.className = 'receipt-items-payment-summary';
+  paidMenuSummary.textContent = `Menu lunas: ${formatRupiah(paidMenuAmount)} · Menu belum dibayar: ${formatRupiah(unpaidMenuAmount)}`;
+  itemsList.appendChild(paidMenuSummary);
 
   document.getElementById('modalRunningDetails').classList.add('open');
 }
@@ -574,6 +760,163 @@ function addMenuFromRunningDetails() {
   openOrderModal(activeUnitId);
 }
 
+function editRunningUnitDuration() {
+  const unitId = activeUnitId;
+  closeAllModals();
+  openStartModal(unitId);
+}
+
+function openRunningRentalPaymentModal() {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  if (!unit || unit.status !== 'running' || Number(unit.targetMinutes) <= 0) return;
+  const rentalCost = calculateCost(unit.ratePerHour, 0, unit.targetMinutes);
+  const outstandingRental = Math.max(0, rentalCost - getUnitPaidRentalAmount(unit));
+  if (outstandingRental <= 0) return;
+
+  document.getElementById('runningRentalPaymentSummary').textContent =
+    `TV ${getUnitDisplayName(unit.name)} · Sisa rental paket ${formatRupiah(outstandingRental)}`;
+  const amountInput = document.getElementById('runningRentalPaymentAmount');
+  amountInput.max = outstandingRental;
+  amountInput.value = outstandingRental;
+  document.getElementById('modalRunningRentalPayment').classList.add('open');
+}
+
+function openRunningMenuPaymentModal() {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  if (!unit || unit.status !== 'running') return;
+
+  document.getElementById('runningMenuPaymentSummary').textContent =
+    `TV ${getUnitDisplayName(unit.name)} · Pilih jumlah menu yang ingin dibayar sekarang.`;
+  const itemsContainer = document.getElementById('runningMenuPaymentItems');
+  itemsContainer.replaceChildren();
+  (unit.orderItems || []).forEach((item, index) => {
+    const qty = Math.max(0, Number(item.qty) || 0);
+    const paidQty = Math.max(0, Math.min(qty, Number(item.paidQty) || 0));
+    const unpaidQty = qty - paidQty;
+    if (unpaidQty === 0) return;
+
+    const row = document.createElement('div');
+    row.className = 'running-menu-payment-row';
+    const details = document.createElement('div');
+    details.className = 'receipt-item-details';
+    const name = document.createElement('strong');
+    name.textContent = item.name;
+    const outstanding = document.createElement('span');
+    outstanding.textContent = `${unpaidQty} belum dibayar · ${formatRupiah((Number(item.price) || 0) * unpaidQty)}`;
+    details.append(name, outstanding);
+
+    const quantityInput = document.createElement('input');
+    quantityInput.type = 'number';
+    quantityInput.className = 'form-control running-menu-payment-qty';
+    quantityInput.dataset.itemIndex = String(index);
+    quantityInput.min = '0';
+    quantityInput.max = String(unpaidQty);
+    quantityInput.step = '1';
+    quantityInput.value = '0';
+    quantityInput.setAttribute('aria-label', `Jumlah ${item.name} yang dibayar`);
+    quantityInput.addEventListener('input', updateRunningMenuPaymentTotal);
+
+    row.append(details, quantityInput);
+    itemsContainer.appendChild(row);
+  });
+
+  if (!itemsContainer.children.length) {
+    alert('Tidak ada menu yang belum dibayar.');
+    return;
+  }
+  document.getElementById('runningMenuPaymentTotal').textContent = formatRupiah(0);
+  document.getElementById('modalRunningMenuPayment').classList.add('open');
+}
+
+function updateRunningMenuPaymentTotal() {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  if (!unit) return;
+
+  const total = Array.from(document.querySelectorAll('.running-menu-payment-qty')).reduce((sum, input) => {
+    const index = Number(input.dataset.itemIndex);
+    const item = unit.orderItems[index];
+    const qty = Math.max(0, Math.min(Number(input.max) || 0, Number(input.value) || 0));
+    return sum + qty * (Number(item.price) || 0);
+  }, 0);
+  document.getElementById('runningMenuPaymentTotal').textContent = formatRupiah(total);
+}
+
+function recordRunningMenuPayment() {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  if (!unit || unit.status !== 'running') return;
+
+  const selectedItems = Array.from(document.querySelectorAll('.running-menu-payment-qty'))
+    .map(input => {
+      const index = Number(input.dataset.itemIndex);
+      const item = unit.orderItems[index];
+      const qty = Number(input.value);
+      const unpaidQty = Math.max(0, (Number(item.qty) || 0) - Math.max(0, Number(item.paidQty) || 0));
+      return { item, qty, unpaidQty };
+    });
+  if (selectedItems.some(({ qty, unpaidQty }) => !Number.isSafeInteger(qty) || qty < 0 || qty > unpaidQty)) {
+    alert('Jumlah menu yang dibayar tidak valid. Periksa kembali jumlah yang dipilih.');
+    return;
+  }
+
+  const paymentAmount = selectedItems.reduce((total, { item, qty }) => total + qty * (Number(item.price) || 0), 0);
+  if (!Number.isSafeInteger(paymentAmount) || paymentAmount <= 0) {
+    alert('Pilih jumlah menu yang akan dibayar terlebih dahulu.');
+    return;
+  }
+
+  selectedItems.forEach(({ item, qty }) => {
+    item.paidQty = (Number(item.paidQty) || 0) + qty;
+  });
+  if (!Array.isArray(unit.payments)) unit.payments = [];
+  unit.payments.push({
+    amount: paymentAmount,
+    method: document.getElementById('runningMenuPaymentMethod').value,
+    type: 'menu',
+    timestamp: Date.now()
+  });
+  if (!saveDB(db)) return;
+
+  closeAllModals();
+  renderUnits();
+  openRunningUnitDetails(unit.id);
+}
+
+function recordRunningRentalPayment() {
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  if (!unit || unit.status !== 'running' || Number(unit.targetMinutes) <= 0) {
+    alert('Pembayaran rental di muka hanya tersedia untuk sesi paket berdurasi.');
+    return;
+  }
+
+  const rentalCost = calculateCost(unit.ratePerHour, 0, unit.targetMinutes);
+  const alreadyPaid = getUnitPaidRentalAmount(unit);
+  const outstandingRental = Math.max(0, rentalCost - alreadyPaid);
+  const amount = Number(document.getElementById('runningRentalPaymentAmount').value);
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > outstandingRental) {
+    alert(`Pembayaran rental harus berupa angka bulat antara Rp 1 dan ${formatRupiah(outstandingRental)}.`);
+    return;
+  }
+
+  if (!Array.isArray(unit.payments)) unit.payments = [];
+  unit.payments.push({
+    amount,
+    method: document.getElementById('runningRentalPaymentMethod').value,
+    type: 'rental',
+    timestamp: Date.now()
+  });
+  unit.rentalPaidAmount = alreadyPaid + amount;
+  if (!saveDB(db)) return;
+
+  closeAllModals();
+  renderUnits();
+  openRunningUnitDetails(unit.id);
+}
+
 function continueRunningUnitToPayment() {
   const unitId = activeUnitId;
   closeAllModals();
@@ -582,24 +925,53 @@ function continueRunningUnitToPayment() {
 
 // Modal Mulai
 function openStartModal(unitId) {
-  if (!requireActiveAttendantShift()) return;
   const db = getDB();
   const unit = db.units.find(u => u.id === unitId);
   if (!unit) return;
+  editingRentalDuration = unit.status === 'running';
+  if (editingRentalDuration) {
+    if (!requireAttendantForTransaction(unit, db)) return;
+  } else if (!requireActiveAttendantShift()) {
+    return;
+  }
 
   activeUnitId = unitId;
-  chosenDurationMinutes = 0;
+  chosenDurationMinutes = editingRentalDuration ? Number(unit.targetMinutes) || 0 : 0;
 
   const customInput = document.getElementById('customDurationInput');
-  if (customInput) customInput.value = '';
+  if (customInput) customInput.value = editingRentalDuration && unit.targetMinutes > 0 ? unit.targetMinutes : '';
 
-  document.getElementById('startUnitTitle').textContent = `Mulai Rental - TV ${getUnitDisplayName(unit.name)}`;
+  document.getElementById('startUnitTitle').textContent = `${editingRentalDuration ? 'Edit Durasi' : 'Mulai Rental'} - TV ${getUnitDisplayName(unit.name)}`;
   document.getElementById('startUnitRate').textContent = `Tarif: ${formatRupiah(unit.ratePerHour)} / jam`;
+  const startButton = document.getElementById('confirmStartRentalButton');
+  if (startButton) startButton.textContent = editingRentalDuration ? 'Simpan Durasi Baru' : 'Mulai Main Sekarang';
+  const initialOrders = document.getElementById('initialRentalOrders');
+  if (initialOrders) initialOrders.hidden = editingRentalDuration;
+  const rentalPrepayment = document.getElementById('startRentalPrepayment');
+  if (rentalPrepayment) rentalPrepayment.hidden = editingRentalDuration;
+  const startRentalPaidNow = document.getElementById('startRentalPaidNow');
+  if (startRentalPaidNow) startRentalPaidNow.checked = false;
+  const durationNote = document.getElementById('durationEditNote');
+  if (durationNote) {
+    const elapsedMinutes = Math.ceil((Date.now() - Number(unit.startTime || Date.now())) / 60000);
+    durationNote.hidden = !editingRentalDuration;
+    durationNote.textContent = unit.targetMinutes > 0
+      ? `Durasi berjalan ${formatDurationDetail((Date.now() - unit.startTime) / 1000)}. Durasi paket hanya dapat diperpanjang (minimal ${unit.targetMinutes} menit).`
+      : `Mode LOSS sudah berjalan ${elapsedMinutes} menit. Durasi yang dipilih akan ditambahkan setelah waktu yang sudah berjalan.`;
+  }
 
   // Reset duration button active
-  document.querySelectorAll('.duration-buttons .d-btn').forEach(b => b.classList.remove('selected'));
-  const def = document.querySelector('.duration-buttons .d-btn[data-mins="0"]');
+  document.querySelectorAll('.duration-buttons .d-btn').forEach(button => {
+    button.classList.remove('selected');
+    button.disabled = editingRentalDuration && Number(unit.targetMinutes) > 0 && Number(button.dataset.mins) === 0;
+  });
+  const def = document.querySelector(`.duration-buttons .d-btn[data-mins="${chosenDurationMinutes}"]`)
+    || document.querySelector('.duration-buttons .d-btn[data-mins="0"]');
   if (def) def.classList.add('selected');
+  updateStartRentalPrepaymentOption();
+  if (!editingRentalDuration) {
+    renderInitialRentalProducts();
+  }
 
   document.getElementById('modalStartRental').classList.add('open');
 }
@@ -608,8 +980,13 @@ function selectDuration(mins, btnElement) {
   chosenDurationMinutes = mins;
   const customInput = document.getElementById('customDurationInput');
   if (customInput) customInput.value = '';
+  if (mins <= 0) {
+    const paidNow = document.getElementById('startRentalPaidNow');
+    if (paidNow) paidNow.checked = false;
+  }
   document.querySelectorAll('.duration-buttons .d-btn').forEach(b => b.classList.remove('selected'));
   if (btnElement) btnElement.classList.add('selected');
+  updateStartRentalPrepaymentOption();
 }
 
 function applyCustomDuration() {
@@ -625,18 +1002,43 @@ function applyCustomDuration() {
   chosenDurationMinutes = customMinutes;
   document.querySelectorAll('.duration-buttons .d-btn').forEach(b => b.classList.remove('selected'));
   input.value = customMinutes;
+  updateStartRentalPrepaymentOption();
+}
+
+function updateStartRentalPrepaymentOption() {
+  const section = document.getElementById('startRentalPrepayment');
+  if (!section) return;
+  const amountLabel = document.getElementById('startRentalPrepaymentAmount');
+  const methodGroup = document.getElementById('startRentalPaymentMethodGroup');
+  const paidNow = document.getElementById('startRentalPaidNow');
+  const available = !editingRentalDuration && chosenDurationMinutes > 0;
+  section.hidden = !available;
+  if (methodGroup) methodGroup.hidden = !available || !paidNow || !paidNow.checked;
+  if (amountLabel && available) {
+    const db = getDB();
+    const unit = db.units.find(item => item.id === activeUnitId);
+    amountLabel.textContent = unit
+      ? `Biaya paket ${formatDurationDetail(chosenDurationMinutes * 60)}: ${formatRupiah(calculateCost(unit.ratePerHour, 0, chosenDurationMinutes))}`
+      : '';
+  }
 }
 
 function confirmStartRental() {
   const activeShift = getActiveAttendantShift(getDB());
-  if (!activeShift) {
-    requireActiveAttendantShift();
+  const currentDb = getDB();
+  const currentUnit = currentDb.units.find(u => u.id === activeUnitId);
+  if (!currentUnit || (editingRentalDuration
+    ? !requireAttendantForTransaction(currentUnit, currentDb)
+    : !activeShift)) {
+    if (!editingRentalDuration) requireActiveAttendantShift();
     return;
   }
-  prepareExpiryAlarmAudio().catch(error => {
-    console.error('Tidak dapat mengaktifkan audio alarm.', error);
-    showWarningToast('Suara alarm belum aktif. Periksa izin audio browser dan volume laptop.');
-  });
+  if (!editingRentalDuration) {
+    prepareExpiryAlarmAudio().catch(error => {
+      console.error('Tidak dapat mengaktifkan audio alarm.', error);
+      showWarningToast('Suara alarm belum aktif. Periksa izin audio browser dan volume laptop.');
+    });
+  }
 
   const customInput = document.getElementById('customDurationInput');
   const customValue = customInput ? customInput.value.trim() : '';
@@ -651,20 +1053,107 @@ function confirmStartRental() {
 
   const db = getDB();
   const unit = db.units.find(u => u.id === activeUnitId);
-  if (unit) {
+  if (!unit) return;
+
+  if (editingRentalDuration) {
+    const elapsedMinutes = Math.ceil((Date.now() - Number(unit.startTime)) / 60000);
+    if (Number(unit.targetMinutes) > 0) {
+      unit.targetMinutes = chosenDurationMinutes > 0
+        ? Math.max(Number(unit.targetMinutes), chosenDurationMinutes, elapsedMinutes)
+        : Number(unit.targetMinutes);
+    } else {
+      unit.targetMinutes = chosenDurationMinutes > 0 ? elapsedMinutes + chosenDurationMinutes : 0;
+    }
+    if (window.__nearFinishWarnedUnits) delete window.__nearFinishWarnedUnits[unit.id];
+    if (window.__expiredUnitAlarms) delete window.__expiredUnitAlarms[unit.id];
+  } else {
+    const initialItems = Array.from(document.querySelectorAll('.start-order-product-qty'))
+      .map(input => ({ id: input.dataset.productId, qty: Number(input.value) || 0 }))
+      .filter(item => item.qty > 0);
+    if (!validateOrderStock(db, initialItems)) return;
+
     unit.status = 'running';
     unit.startTime = Date.now();
     unit.targetMinutes = chosenDurationMinutes;
     unit.orderItems = [];
+    unit.payments = [];
+    delete unit.rentalPaidAmount;
     unit.shiftId = activeShift.id;
     unit.attendantName = activeShift.staffName;
-    saveDB(db);
-    closeAllModals();
-    renderUnits();
+    appendOrderItems(db, unit, initialItems);
+    if (chosenDurationMinutes > 0 && document.getElementById('startRentalPaidNow').checked) {
+      const rentalAmount = calculateCost(unit.ratePerHour, 0, chosenDurationMinutes);
+      unit.rentalPaidAmount = rentalAmount;
+      unit.payments.push({
+        amount: rentalAmount,
+        method: document.getElementById('startRentalPaymentMethod').value,
+        type: 'rental',
+        timestamp: Date.now()
+      });
+    }
   }
+  if (!saveDB(db)) return;
+  editingRentalDuration = false;
+  closeAllModals();
+  renderUnits();
 }
 
 // Modal Tambah Item Minuman / Makanan ke PS yang sedang main
+function renderInitialRentalProducts() {
+  const list = document.getElementById('initialRentalProductList');
+  if (!list) return;
+  const db = getDB();
+  list.innerHTML = db.products.map(product => {
+    const stockValue = productStockValue(product);
+    const max = stockValue === null ? 999 : Math.max(0, stockValue);
+    return `<div class="initial-order-row">
+      <span><strong>${escapeReportHtml(product.name)}</strong><small>${escapeReportHtml(product.category)} · ${formatRupiah(product.price)}${stockValue === null ? '' : ` · Stok ${stockValue}`}</small></span>
+      <input class="form-control start-order-product-qty" type="number" data-product-id="${escapeReportHtml(product.id)}" value="0" min="0" max="${max}" aria-label="Jumlah ${escapeReportHtml(product.name)}">
+    </div>`;
+  }).join('') || '<p>Belum ada menu yang tersedia.</p>';
+}
+
+function validateOrderStock(db, selectedItems) {
+  for (const item of selectedItems) {
+    const product = db.products.find(candidate => candidate.id === item.id);
+    if (!product) {
+      alert('Ada menu yang sudah tidak tersedia. Muat ulang daftar menu lalu coba lagi.');
+      return false;
+    }
+    const stockValue = productStockValue(product);
+    if (!Number.isInteger(item.qty) || item.qty < 1 || (stockValue !== null && stockValue < item.qty)) {
+      alert(`Stok ${product.name} tidak mencukupi${stockValue === null ? '.' : `! Sisa stok hanya ${stockValue}.`}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function appendOrderItems(db, unit, selectedItems) {
+  selectedItems.forEach(item => {
+    const product = db.products.find(candidate => candidate.id === item.id);
+    if (!product) return;
+    const stockValue = productStockValue(product);
+    if (stockValue !== null) product.stock = stockValue - item.qty;
+
+    const existingItem = (unit.orderItems || []).find(ordered => ordered.id === product.id);
+    if (existingItem) {
+      existingItem.qty += item.qty;
+      existingItem.paidQty = Number(existingItem.paidQty) || 0;
+      if (!existingItem.category) existingItem.category = product.category;
+    } else {
+      unit.orderItems.push({
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        price: Number(product.price) || 0,
+        qty: item.qty,
+        paidQty: 0
+      });
+    }
+  });
+}
+
 function renderOrderProductList(filter = 'Semua') {
   const db = getDB();
   const listEl = document.getElementById('orderProductList');
@@ -797,42 +1286,11 @@ function addSelectedItemsToUnit() {
     return;
   }
 
-  for (const item of selectedItems) {
-    const product = db.products.find(p => p.id === item.id);
-    if (!product) continue;
+  if (!validateOrderStock(db, selectedItems)) return;
+  if (!unit.orderItems) unit.orderItems = [];
+  appendOrderItems(db, unit, selectedItems);
 
-    const stockValue = productStockValue(product);
-    if (stockValue !== null && stockValue < item.qty) {
-      alert(`Stok ${product.name} tidak mencukupi! Sisa stok hanya ${stockValue}.`);
-      return;
-    }
-  }
-
-  selectedItems.forEach(item => {
-    const product = db.products.find(p => p.id === item.id);
-    if (!product) return;
-
-    const stockValue = productStockValue(product);
-    if (stockValue !== null) {
-      product.stock = stockValue - item.qty;
-    }
-
-    if (!unit.orderItems) unit.orderItems = [];
-    const existingItem = unit.orderItems.find(i => i.id === product.id);
-    if (existingItem) {
-      existingItem.qty += item.qty;
-    } else {
-      unit.orderItems.push({
-        id: product.id,
-        name: product.name,
-        price: product.price,
-        qty: item.qty
-      });
-    }
-
-  });
-
-  saveDB(db);
+  if (!saveDB(db)) return;
   renderUnits();
   document.querySelectorAll('.order-product-qty').forEach(input => { input.value = 0; });
   const categoryFilter = document.getElementById('orderCategoryFilter');
@@ -840,7 +1298,7 @@ function addSelectedItemsToUnit() {
   const feedback = document.getElementById('orderProductFeedback');
   if (feedback) {
     const totalCount = selectedItems.reduce((total, item) => total + item.qty, 0);
-    feedback.textContent = `${totalCount} item berhasil ditambahkan ke TV ${getUnitDisplayName(unit.name)}.`;
+    feedback.textContent = `${totalCount} item berhasil ditambahkan ke TV ${getUnitDisplayName(unit.name)} sebagai tagihan.`;
   }
 }
 
@@ -858,13 +1316,13 @@ function openStopModal(unitId) {
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
   const grandTotal = rentalCost + itemsCost;
+  const paidAmount = (unit.payments || []).reduce((total, payment) => total + (Number(payment.amount) || 0), 0);
 
   let durDesc = '';
   if (unit.targetMinutes > 0) {
-    durDesc = `${unit.targetMinutes} Menit (Paket)`;
+    durDesc = `${formatDurationDetail(unit.targetMinutes * 60)} (Paket) · ${formatDurationDetail(elapsedSec)} dimainkan`;
   } else {
-    const mins = Math.ceil(elapsedSec / 60);
-    durDesc = `Mode LOSS (${mins} Menit)`;
+    durDesc = `Mode LOSS (${formatDurationDetail(elapsedSec)})`;
   }
 
   document.getElementById('receiptUnitName').textContent = `TV ${getUnitDisplayName(unit.name)}`;
@@ -873,6 +1331,8 @@ function openStopModal(unitId) {
   document.getElementById('receiptRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('receiptItemsCost').textContent = formatRupiah(itemsCost);
   document.getElementById('receiptTotal').textContent = formatRupiah(grandTotal);
+  document.getElementById('receiptAlreadyPaid').textContent = formatRupiah(paidAmount);
+  document.getElementById('receiptOutstanding').textContent = formatRupiah(Math.max(0, grandTotal - paidAmount));
   document.getElementById('modalStopRental').classList.add('open');
 }
 
@@ -882,15 +1342,33 @@ function processPayment() {
   if (!unit) return;
   if (!requireAttendantForTransaction(unit, db)) return;
 
-  const paymentMethod = document.getElementById('paymentMethodSelect').value;
+  const checkoutMethod = document.getElementById('paymentMethodSelect').value;
   const endTime = Date.now();
   const elapsedSec = Math.floor((endTime - unit.startTime) / 1000);
   const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
   const grandTotal = rentalCost + itemsCost;
+  if (!Array.isArray(unit.payments)) unit.payments = [];
+  const paidBeforeCheckout = unit.payments.reduce((total, payment) => total + (Number(payment.amount) || 0), 0);
+  const outstandingBeforeCheckout = Math.max(0, grandTotal - paidBeforeCheckout);
+  const checkoutAmount = outstandingBeforeCheckout;
+  if (checkoutAmount > 0) {
+    unit.payments.push({
+      amount: checkoutAmount,
+      method: checkoutMethod,
+      type: 'checkout',
+      timestamp: Date.now()
+    });
+  }
+  const paidAmount = unit.payments.reduce((total, payment) => total + (Number(payment.amount) || 0), 0);
+  const remainingAmount = Math.max(0, grandTotal - paidAmount);
+  const paymentMethods = [...new Set(unit.payments.map(payment => payment.method).filter(Boolean))];
+  const paymentMethod = paymentMethods.join(' + ') || 'Belum dibayar';
 
-  let durDesc = unit.targetMinutes > 0 ? `${unit.targetMinutes} Menit` : `Mode LOSS (${Math.ceil(elapsedSec / 60)} mnt)`;
+  let durDesc = unit.targetMinutes > 0
+    ? `${formatDurationDetail(unit.targetMinutes * 60)} (Paket) · ${formatDurationDetail(elapsedSec)} dimainkan`
+    : `Mode LOSS (${formatDurationDetail(elapsedSec)})`;
 
   // Add transaction to history
   const now = new Date(endTime);
@@ -908,8 +1386,11 @@ function processPayment() {
     endTime: endTime,
     rentalCost: rentalCost,
     itemsCost: itemsCost,
-    items: items,
+    items: items.map(item => ({ ...item, category: item.category || 'Lainnya' })),
     totalCost: grandTotal,
+    paidAmount,
+    remainingAmount,
+    payments: unit.payments,
     paymentMethod: paymentMethod
   };
 
@@ -920,18 +1401,70 @@ function processPayment() {
   unit.startTime = null;
   unit.targetMinutes = 0;
   unit.orderItems = [];
+  unit.payments = [];
+  delete unit.rentalPaidAmount;
   delete unit.shiftId;
   delete unit.attendantName;
 
-  saveDB(db);
+  if (!saveDB(db)) return;
   closeAllModals();
   renderUnits();
   renderHistory();
-  alert(`Pembayaran Sukses! Total: ${formatRupiah(grandTotal)} (${paymentMethod})`);
+  alert(`Transaksi selesai. Total tagihan: ${formatRupiah(grandTotal)}, sudah dibayar: ${formatRupiah(paidAmount)}, sisa: ${formatRupiah(remainingAmount)}.`);
 }
 
 function closeAllModals() {
   document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
+}
+
+function openReceivePaymentModal(transactionId) {
+  const trx = getDB().history.find(item => item.id === transactionId);
+  if (!trx) return;
+  const remainingAmount = getTransactionRemainingAmount(trx);
+  if (remainingAmount <= 0) {
+    alert('Tagihan transaksi ini sudah lunas.');
+    return;
+  }
+  activeTransactionId = transactionId;
+  document.getElementById('receivePaymentSummary').textContent =
+    `${trx.id} · ${trx.unitName} · Sisa ${formatRupiah(remainingAmount)}`;
+  const amountInput = document.getElementById('receivePaymentAmount');
+  amountInput.max = remainingAmount;
+  amountInput.value = remainingAmount;
+  document.getElementById('modalReceivePayment').classList.add('open');
+}
+
+function recordOutstandingPayment() {
+  const db = getDB();
+  const trx = db.history.find(item => item.id === activeTransactionId);
+  if (!trx) {
+    alert('Transaksi tidak ditemukan. Muat ulang riwayat dan coba kembali.');
+    return;
+  }
+  const amount = Number(document.getElementById('receivePaymentAmount').value);
+  const remainingAmount = getTransactionRemainingAmount(trx);
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > remainingAmount) {
+    alert(`Pembayaran harus berupa angka bulat antara Rp 1 dan ${formatRupiah(remainingAmount)}.`);
+    return;
+  }
+
+  if (!Array.isArray(trx.payments)) {
+    trx.payments = getTransactionPaidAmount(trx) > 0
+      ? [{ amount: getTransactionPaidAmount(trx), method: trx.paymentMethod || 'Tunai', type: 'legacy', timestamp: null }]
+      : [];
+  }
+  const method = document.getElementById('receivePaymentMethod').value;
+  trx.payments.push({ amount, method, type: 'receivable', timestamp: Date.now() });
+  trx.paidAmount = getTransactionPaidAmount(trx);
+  trx.remainingAmount = Math.max(0, Number(trx.totalCost) - trx.paidAmount);
+  const methods = [...new Set(trx.payments.map(payment => payment.method).filter(Boolean))];
+  trx.paymentMethod = methods.join(' + ') || method;
+  if (!saveDB(db)) return;
+  activeTransactionId = null;
+  closeAllModals();
+  renderHistory();
+  renderAdminHistory();
+  renderAdminAttendantShifts();
 }
 
 function getActiveAttendantShift(db) {
@@ -1178,21 +1711,28 @@ function renderAttendantShifts(shifts, history, filterKey, filterError) {
     nameInput.value = activeShift.staffName;
   }
 
+  const createShiftTotals = () => ({
+    count: 0,
+    total: 0,
+    rental: 0,
+    items: { Minuman: { amount: 0, qty: 0 }, Makanan: { amount: 0, qty: 0 }, Snack: { amount: 0, qty: 0 } }
+  });
   const totalsByShift = new Map();
-  const unassigned = { count: 0, total: 0 };
+  const unassigned = createShiftTotals();
   const knownShiftIds = new Set(shifts.map(shift => shift.id));
   history.forEach(trx => {
-    const amount = Number(trx.totalCost) || 0;
-    const shiftTotal = knownShiftIds.has(trx.shiftId) ? totalsByShift.get(trx.shiftId) : null;
-    if (shiftTotal) {
-      shiftTotal.count += 1;
-      shiftTotal.total += amount;
-    } else if (knownShiftIds.has(trx.shiftId)) {
-      totalsByShift.set(trx.shiftId, { count: 1, total: amount });
-    } else {
-      unassigned.count += 1;
-      unassigned.total += amount;
-    }
+    const totals = knownShiftIds.has(trx.shiftId)
+      ? (totalsByShift.get(trx.shiftId) || createShiftTotals())
+      : unassigned;
+    totals.count += 1;
+    totals.total += Number(trx.totalCost) || 0;
+    totals.rental += Number(trx.rentalCost) || 0;
+    const itemBreakdown = getTransactionItemBreakdown(trx);
+    Object.keys(totals.items).forEach(category => {
+      totals.items[category].amount += itemBreakdown[category].amount;
+      totals.items[category].qty += itemBreakdown[category].qty;
+    });
+    if (knownShiftIds.has(trx.shiftId)) totalsByShift.set(trx.shiftId, totals);
   });
 
   const range = filterError ? null : getHistoryFilterDateRange(filterKey);
@@ -1208,7 +1748,7 @@ function renderAttendantShifts(shifts, history, filterKey, filterError) {
 
   tbody.innerHTML = '';
   visibleShifts.forEach(shift => {
-    const totals = totalsByShift.get(shift.id) || { count: 0, total: 0 };
+    const totals = totalsByShift.get(shift.id) || createShiftTotals();
     const isActive = activeShift && activeShift.id === shift.id;
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -1217,6 +1757,10 @@ function renderAttendantShifts(shifts, history, filterKey, filterError) {
       <td>${isActive ? 'Sedang jaga' : escapeReportHtml(formatAttendantShiftTime(shift.endTime))}</td>
       <td>${totals.count}</td>
       <td><strong>${formatRupiah(totals.total)}</strong></td>
+      <td>${formatRupiah(totals.rental)}</td>
+      <td>${formatRupiah(totals.items.Minuman.amount)} (${totals.items.Minuman.qty})</td>
+      <td>${formatRupiah(totals.items.Makanan.amount)} (${totals.items.Makanan.qty})</td>
+      <td>${formatRupiah(totals.items.Snack.amount)} (${totals.items.Snack.qty})</td>
     `;
     tbody.appendChild(row);
   });
@@ -1229,12 +1773,16 @@ function renderAttendantShifts(shifts, history, filterKey, filterError) {
       <td>-</td>
       <td>${unassigned.count}</td>
       <td><strong>${formatRupiah(unassigned.total)}</strong></td>
+      <td>${formatRupiah(unassigned.rental)}</td>
+      <td>${formatRupiah(unassigned.items.Minuman.amount)} (${unassigned.items.Minuman.qty})</td>
+      <td>${formatRupiah(unassigned.items.Makanan.amount)} (${unassigned.items.Makanan.qty})</td>
+      <td>${formatRupiah(unassigned.items.Snack.amount)} (${unassigned.items.Snack.qty})</td>
     `;
     tbody.appendChild(row);
   }
 
   if (tbody.children.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada data masa jaga pada periode ini.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:16px; text-align:center; color:#94a3b8;">Belum ada data masa jaga pada periode ini.</td></tr>';
   }
 }
 
@@ -1242,21 +1790,24 @@ function renderHistory() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
 
-  const { history: filteredHistory, expenses: filteredExpenses, filterKey, filterError } = getFilteredHistory();
+  const db = getDB();
+  const { history: filteredHistory, expenses: filteredExpenses, filterKey, filterError } = getFilteredHistory(db);
   const filterMessage = document.getElementById('historyFilterMessage');
   if (filterMessage) filterMessage.textContent = filterError;
 
   tbody.innerHTML = '';
 
-  let totalOmset = 0;
+  const totalOmset = getCollectedPaymentsForPeriod(db, filterKey, filterError);
+  let totalBilled = 0;
   let totalRental = 0;
-  let totalFnb = 0;
   const totalExpenses = filteredExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
 
   filteredHistory.forEach(trx => {
-    totalOmset += trx.totalCost;
-    totalRental += trx.rentalCost;
-    totalFnb += trx.itemsCost;
+    const itemSummary = getTransactionItemSummary(trx);
+    const paidAmount = getTransactionPaidAmount(trx);
+    const remainingAmount = getTransactionRemainingAmount(trx);
+    totalBilled += Number(trx.totalCost) || 0;
+    totalRental += Number(trx.rentalCost) || 0;
 
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -1265,9 +1816,11 @@ function renderHistory() {
       <td>${escapeReportHtml(trx.attendantName || 'Belum tercatat')}</td>
       <td><strong>${trx.unitName}</strong><br><small>${trx.durationText}</small></td>
       <td>${formatRupiah(trx.rentalCost)}</td>
-      <td>${formatRupiah(trx.itemsCost)}</td>
+      <td>${formatRupiah(trx.itemsCost)}<br><small>${escapeReportHtml(itemSummary || 'Tidak ada menu')}</small></td>
       <td><strong style="color:#1d4ed8;">${formatRupiah(trx.totalCost)}</strong></td>
-      <td><span class="badge ${trx.paymentMethod === 'QRIS' ? 'badge-running' : 'badge-ready'}">${trx.paymentMethod}</span></td>
+      <td>${formatRupiah(paidAmount)}<br><small>${getTransactionPaymentSummary(trx)}</small></td>
+      <td>${remainingAmount > 0 ? `<strong>${formatRupiah(remainingAmount)}</strong><br><button class="btn btn-success" onclick="openReceivePaymentModal('${escapeReportHtml(trx.id)}')">Catat Bayar</button>` : formatRupiah(0)}</td>
+      <td><span class="badge ${trx.paymentMethod === 'QRIS' ? 'badge-running' : 'badge-ready'}">${escapeReportHtml(trx.paymentMethod || '-')}</span></td>
     `;
     tbody.appendChild(row);
   });
@@ -1275,7 +1828,7 @@ function renderHistory() {
   if (filteredHistory.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" style="padding: 20px; text-align: center; color: #64748b;">
+        <td colspan="10" style="padding: 20px; text-align: center; color: #64748b;">
           Tidak ada transaksi untuk periode yang dipilih.
         </td>
       </tr>
@@ -1283,8 +1836,8 @@ function renderHistory() {
   }
 
   document.getElementById('statTotalOmset').textContent = formatRupiah(totalOmset);
+  document.getElementById('statTotalBilled').textContent = formatRupiah(totalBilled);
   document.getElementById('statTotalRental').textContent = formatRupiah(totalRental);
-  document.getElementById('statTotalFnb').textContent = formatRupiah(totalFnb);
   document.getElementById('statTotalTrx').textContent = filteredHistory.length;
   document.getElementById('statTotalExpense').textContent = formatRupiah(totalExpenses);
   document.getElementById('statNetCashflow').textContent = formatRupiah(totalOmset - totalExpenses);
@@ -1423,10 +1976,18 @@ function getAttendantShiftReportRows(history, shifts = getDB().shifts) {
       startTime: shift ? shift.startTime : null,
       endTime: shift ? shift.endTime : null,
       count: 0,
-      total: 0
+      total: 0,
+      rental: 0,
+      items: { Minuman: { amount: 0, qty: 0 }, Makanan: { amount: 0, qty: 0 }, Snack: { amount: 0, qty: 0 } }
     };
     totals.count += 1;
     totals.total += Number(trx.totalCost) || 0;
+    totals.rental += Number(trx.rentalCost) || 0;
+    const itemBreakdown = getTransactionItemBreakdown(trx);
+    Object.keys(totals.items).forEach(category => {
+      totals.items[category].amount += itemBreakdown[category].amount;
+      totals.items[category].qty += itemBreakdown[category].qty;
+    });
     totalsByShift.set(key, totals);
   });
 
@@ -1571,7 +2132,7 @@ function createZipBlob(files) {
   return zipBlob;
 }
 
-function createExcelReport(history, expenses, periodLabel, shifts = getDB().shifts) {
+function createExcelReport(history, expenses, periodLabel, shifts = getDB().shifts, collectedTotal = null, paymentRecords = []) {
   const sortedHistory = [...history].sort((a, b) => parseTransactionDate(a.date) - parseTransactionDate(b.date));
   const sortedExpenses = [...expenses].sort((a, b) => parseExpenseDate(a.date) - parseExpenseDate(b.date));
   const dates = new Map();
@@ -1589,6 +2150,12 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
     if (Number.isNaN(date.getTime())) return;
     dates.set(expense.date, date);
     months.set(expense.date.slice(0, 7), true);
+  });
+  paymentRecords.forEach(payment => {
+    if (Number.isNaN(payment.date.getTime())) return;
+    const dayKey = `${payment.date.getFullYear()}-${String(payment.date.getMonth() + 1).padStart(2, '0')}-${String(payment.date.getDate()).padStart(2, '0')}`;
+    dates.set(dayKey, payment.date);
+    months.set(dayKey.slice(0, 7), true);
   });
 
   const textCell = value => ({ value: value === null || value === undefined ? '' : String(value), type: 'string' });
@@ -1613,12 +2180,12 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
       textCell(dayKey ? dayKey.slice(0, 7) : ''),
       textCell(trx.unitName),
       textCell(trx.durationText),
-      textCell((trx.items || []).map(item => `${item.name} x${item.qty}`).join(', ')),
+      textCell(getTransactionItemSummary(trx)),
       numberCell(trx.rentalCost),
-      numberCell(trx.itemsCost),
       numberCell(trx.totalCost),
       textCell(trx.paymentMethod),
-      textCell(trx.attendantName || shifts.find(shift => shift.id === trx.shiftId)?.staffName || 'Petugas belum tercatat')
+      textCell(trx.attendantName || shifts.find(shift => shift.id === trx.shiftId)?.staffName || 'Petugas belum tercatat'),
+      numberCell(getTransactionPaidAmount(trx))
     ];
   });
   const expenseRows = sortedExpenses.map(expense => {
@@ -1634,15 +2201,26 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
       numberCell(expense.amount)
     ];
   });
+  const paymentRows = paymentRecords.map(payment => [
+    dateCell(payment.date),
+    dateCell(payment.date, false),
+    textCell(`${payment.date.getFullYear()}-${String(payment.date.getMonth() + 1).padStart(2, '0')}`),
+    textCell(payment.transactionId),
+    textCell(payment.unitName),
+    textCell(payment.method),
+    numberCell(payment.amount),
+    textCell(payment.type)
+  ]);
 
   const transactionEnd = Math.max(2, transactionRows.length + 1);
   const expenseEnd = Math.max(2, expenseRows.length + 1);
+  const paymentEnd = Math.max(2, paymentRows.length + 1);
   const dailyRows = Array.from(dates.keys()).sort().map(dayKey => ({ dayKey, date: dates.get(dayKey) }));
   const dailyDataRows = dailyRows.map((item, index) => {
     const rowNumber = index + 2;
     return [
       dateCell(item.date, false),
-      formulaCell(`SUMIF(Transaksi!$C$2:$C$${transactionEnd},$A${rowNumber},Transaksi!$J$2:$J$${transactionEnd})`),
+      formulaCell(`SUMIF(Penerimaan!$B$2:$B$${paymentEnd},$A${rowNumber},Penerimaan!$G$2:$G$${paymentEnd})`),
       formulaCell(`SUMIF(Pengeluaran!$C$2:$C$${expenseEnd},$A${rowNumber},Pengeluaran!$G$2:$G$${expenseEnd})`),
       formulaCell(`B${rowNumber}-C${rowNumber}`)
     ];
@@ -1651,13 +2229,13 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
     const rowNumber = index + 2;
     return [
       textCell(monthKey),
-      formulaCell(`SUMIF(Transaksi!$D$2:$D$${transactionEnd},$A${rowNumber},Transaksi!$J$2:$J$${transactionEnd})`),
+      formulaCell(`SUMIF(Penerimaan!$C$2:$C$${paymentEnd},$A${rowNumber},Penerimaan!$G$2:$G$${paymentEnd})`),
       formulaCell(`SUMIF(Pengeluaran!$D$2:$D$${expenseEnd},$A${rowNumber},Pengeluaran!$G$2:$G$${expenseEnd})`),
       formulaCell(`B${rowNumber}-C${rowNumber}`)
     ];
   });
-  const totalFormula = (rowCount, column) => rowCount > 0
-    ? formulaCell(`SUM(${excelColumnName(column)}2:${excelColumnName(column)}${rowCount + 1})`)
+  const totalFormula = (rowCount, column, firstDataRow = 2) => rowCount > 0
+    ? formulaCell(`SUM(${excelColumnName(column)}${firstDataRow}:${excelColumnName(column)}${firstDataRow + rowCount - 1})`)
     : numberCell(0);
   const summaryRows = (headers, dataRows) => [
     headerRow(headers),
@@ -1665,17 +2243,26 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
     [textCell('TOTAL'), totalFormula(dataRows.length, 2), totalFormula(dataRows.length, 3), totalFormula(dataRows.length, 4)]
   ];
   const transactionSheetRows = [
-    headerRow(['ID Transaksi', 'Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'Unit', 'Durasi', 'Menu', 'Rental (Rp)', 'Menu (Rp)', 'Total Pemasukan (Rp)', 'Metode', 'Petugas']),
+    headerRow(['ID Transaksi', 'Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'Unit', 'Durasi', 'Menu', 'Rental (Rp)', 'Total Tagihan (Rp)', 'Metode', 'Petugas', 'Sudah Dibayar (Rp)']),
     ...transactionRows,
     [
       textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''),
-      totalFormula(transactionRows.length, 8), totalFormula(transactionRows.length, 9), totalFormula(transactionRows.length, 10), textCell(''), textCell('')
+      totalFormula(transactionRows.length, 8), totalFormula(transactionRows.length, 9), textCell(''), textCell(''),
+      totalFormula(transactionRows.length, 12)
     ]
   ];
   const expenseSheetRows = [
     headerRow(['ID Pengeluaran', 'Tanggal', 'Tanggal Rekap', 'Bulan Rekap', 'Kategori', 'Keterangan', 'Jumlah Keluar (Rp)']),
     ...expenseRows,
     [textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''), totalFormula(expenseRows.length, 7)]
+  ];
+  const paymentSheetRows = [
+    headerRow(['Tanggal & Waktu', 'Tanggal Rekap', 'Bulan Rekap', 'ID Transaksi', 'Unit', 'Metode', 'Jumlah Diterima (Rp)', 'Jenis Pembayaran']),
+    ...paymentRows,
+    [
+      textCell('TOTAL'), textCell(''), textCell(''), textCell(''), textCell(''), textCell(''),
+      totalFormula(paymentRows.length, 7), textCell('')
+    ]
   ];
   const reportHeader = labels => labels.map(label => ({ ...textCell(label), style: 3 }));
   const reportSection = label => [{ ...textCell(label), style: 7 }, ...Array.from({ length: 8 }, () => textCell(''))];
@@ -1694,13 +2281,15 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
     reportSection('RINGKASAN PEMASUKAN & PENGELUARAN'),
     reportHeader(['Keterangan', 'Jumlah (Rp)', '', '', '', '', '', '', '']),
     [{ ...textCell('Pendapatan Rental PS'), style: 8 }, formulaCell(`SUM(Transaksi!$H$2:$H$${transactionEnd})`)],
-    [{ ...textCell('Pendapatan Menu'), style: 8 }, formulaCell(`SUM(Transaksi!$I$2:$I$${transactionEnd})`)],
-    [{ ...textCell('Total Pemasukan'), style: 8 }, formulaCell('B6+B7')],
+    [{ ...textCell('Total Tagihan'), style: 8 }, formulaCell(`SUM(Transaksi!$I$2:$I$${transactionEnd})`)],
     [{ ...textCell('Total Pengeluaran'), style: 8 }, formulaCell(`SUM(Pengeluaran!$G$2:$G$${expenseEnd})`)],
-    [{ ...textCell('Saldo Bersih'), style: 9 }, { ...formulaCell('B8-B9'), style: 9 }],
+    [{ ...textCell('Saldo Bersih'), style: 9 }, { ...formulaCell('B10-B8'), style: 9 }],
+    [{ ...textCell('Total Sudah Dibayar'), style: 8 }, numberCell(collectedTotal === null
+      ? sortedHistory.reduce((sum, trx) => sum + getTransactionPaidAmount(trx), 0)
+      : collectedTotal)],
     Array.from({ length: 9 }, () => textCell('')),
     reportSection('RINCIAN TRANSAKSI'),
-    reportHeader(['ID Transaksi', 'Waktu', 'Unit', 'Durasi', 'Menu yang Diambil', 'Biaya Rental (Rp)', 'Biaya Menu (Rp)', 'Total Bayar (Rp)', 'Metode Pembayaran']),
+    reportHeader(['ID Transaksi', 'Waktu', 'Unit', 'Durasi', 'Menu yang Diambil', 'Biaya Rental (Rp)', 'Total Tagihan (Rp)', 'Sudah Dibayar (Rp)', 'Metode Pembayaran']),
     ...sortedHistory.map(trx => {
       const date = parseTransactionDate(trx.date);
       return [
@@ -1708,19 +2297,19 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
         Number.isNaN(date.getTime()) ? textCell(trx.date) : dateCell(date),
         textCell(trx.unitName),
         textCell(trx.durationText),
-        textCell((trx.items || []).map(item => `${item.name} x${item.qty}`).join(', ') || '-'),
+        textCell(getTransactionItemSummary(trx) || '-'),
         numberCell(trx.rentalCost),
-        numberCell(trx.itemsCost),
         numberCell(trx.totalCost),
+        numberCell(getTransactionPaidAmount(trx)),
         textCell(trx.paymentMethod)
       ];
     }),
     [
       { ...textCell('TOTAL'), style: 9 },
       ...Array.from({ length: 4 }, () => textCell('')),
-      { ...totalFormula(transactionRows.length, 8), style: 9 },
-      { ...totalFormula(transactionRows.length, 9), style: 9 },
-      { ...totalFormula(transactionRows.length, 10), style: 9 },
+      { ...totalFormula(transactionRows.length, 6, 14), style: 9 },
+      { ...totalFormula(transactionRows.length, 7, 14), style: 9 },
+      { ...totalFormula(transactionRows.length, 8, 14), style: 9 },
       textCell('')
     ]
   ];
@@ -1734,25 +2323,33 @@ function createExcelReport(history, expenses, periodLabel, shifts = getDB().shif
       ? textCell('Sedang jaga')
       : Number.isFinite(Number(shift.endTime)) ? dateCell(new Date(Number(shift.endTime))) : textCell('-'),
     numberCell(shift.count),
-    numberCell(shift.total)
+    numberCell(shift.total),
+    numberCell(shift.rental),
+    numberCell(shift.items.Minuman.amount),
+    numberCell(shift.items.Makanan.amount),
+    numberCell(shift.items.Snack.amount)
   ]);
   const attendantShiftSheetRows = [
-    headerRow(['Nama Petugas', 'Mulai Jaga', 'Selesai Jaga', 'Jumlah Transaksi', 'Total Omzet (Rp)']),
+    headerRow(['Nama Petugas', 'Mulai Jaga', 'Selesai Jaga', 'Jumlah Transaksi', 'Total Omzet (Rp)', 'Rental PS (Rp)', 'Minuman (Rp)', 'Makanan (Rp)', 'Snack (Rp)']),
     ...attendantShiftRows,
     [
       textCell('TOTAL'),
       textCell(''),
       textCell(''),
       attendantShiftRows.length ? formulaCell(`SUM(D2:D${attendantShiftRows.length + 1})`) : numberCell(0),
-      attendantShiftRows.length ? formulaCell(`SUM(E2:E${attendantShiftRows.length + 1})`) : numberCell(0)
+      attendantShiftRows.length ? formulaCell(`SUM(E2:E${attendantShiftRows.length + 1})`) : numberCell(0),
+      ...['F', 'G', 'H', 'I'].map(column => attendantShiftRows.length
+        ? formulaCell(`SUM(${column}2:${column}${attendantShiftRows.length + 1})`)
+        : numberCell(0))
     ]
   ];
   const sheets = [
-    { name: 'Rekap Utama', rows: mainReportRows, options: { widths: [22, 21, 18, 26, 38, 20, 20, 20, 22], merges: ['A1:I1', 'A2:I2', 'A4:I4', 'A12:I12'], autoFilter: `A13:I${Math.max(13, transactionRows.length + 13)}`, freezeRows: 2, rowHeights: { 1: 34, 2: 24, 3: 10, 4: 26, 11: 10, 12: 26 } } },
+    { name: 'Rekap Utama', rows: mainReportRows, options: { widths: [22, 21, 18, 26, 38, 20, 20, 22, 22], merges: ['A1:I1', 'A2:I2', 'A4:I4', 'A12:I12'], autoFilter: `A13:I${Math.max(13, transactionRows.length + 13)}`, freezeRows: 2, rowHeights: { 1: 34, 2: 24, 3: 10, 4: 26, 11: 10, 12: 26 } } },
     { name: 'Rekap Harian', rows: summaryRows(['Tanggal', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], dailyDataRows), options: { widths: [20, 24, 24, 24] } },
     { name: 'Rekap Bulanan', rows: summaryRows(['Bulan', 'Pemasukan (Rp)', 'Pengeluaran (Rp)', 'Saldo Bersih (Rp)'], monthDataRows), options: { widths: [20, 24, 24, 24] } },
-    { name: 'Rekap Shift', rows: attendantShiftSheetRows, options: { widths: [24, 22, 22, 20, 24], autoFilter: `A1:E${Math.max(1, attendantShiftRows.length + 1)}` } },
-    { name: 'Transaksi', rows: transactionSheetRows, options: { widths: [18, 22, 15, 12, 20, 28, 40, 18, 18, 22, 18, 24], autoFilter: `A1:L${Math.max(1, transactionRows.length + 1)}` } },
+    { name: 'Rekap Shift', rows: attendantShiftSheetRows, options: { widths: [24, 22, 22, 20, 24, 20, 20, 20, 20], autoFilter: `A1:I${Math.max(1, attendantShiftRows.length + 1)}` } },
+    { name: 'Transaksi', rows: transactionSheetRows, options: { widths: [18, 22, 15, 12, 20, 28, 40, 18, 22, 18, 24, 22], autoFilter: `A1:L${Math.max(1, transactionRows.length + 1)}` } },
+    { name: 'Penerimaan', rows: paymentSheetRows, options: { widths: [22, 16, 14, 22, 20, 18, 22, 20], autoFilter: `A1:H${Math.max(1, paymentRows.length + 1)}` } },
     { name: 'Pengeluaran', rows: expenseSheetRows, options: { widths: [18, 16, 16, 12, 24, 40, 22], autoFilter: `A1:G${Math.max(1, expenseRows.length + 1)}` } }
   ];
 
@@ -1838,24 +2435,23 @@ function exportHistoryReport(format) {
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const totals = history.reduce((sum, trx) => ({
     rental: sum.rental + Number(trx.rentalCost || 0),
-    items: sum.items + Number(trx.itemsCost || 0),
     total: sum.total + Number(trx.totalCost || 0)
-  }), { rental: 0, items: 0, total: 0 });
+  }), { rental: 0, total: 0 });
+  totals.paid = getCollectedPaymentsForPeriod(db, filterKey, filterError);
   totals.expenses = expenseTotal;
-  totals.net = totals.total - expenseTotal;
+  totals.net = totals.paid - expenseTotal;
+  const paymentRecords = getPaymentReportRecords(db, filterKey, filterError);
 
   const now = new Date();
   const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   if (format === 'excel') {
-    const workbook = createExcelReport(history, expenses, getReportPeriodLabel(filterKey), shifts);
+    const workbook = createExcelReport(history, expenses, getReportPeriodLabel(filterKey), shifts, totals.paid, paymentRecords);
     downloadReportFile(workbook, workbook.type, `rekap_keuangan_${fileDate}.xlsx`);
     return;
   }
 
   const transactionRows = history.map(trx => {
-    const itemDetails = (trx.items || [])
-      .map(item => `${item.name} x${item.qty}`)
-      .join(', ');
+    const itemDetails = getTransactionItemSummary(trx);
     return `
       <tr>
         <td>${escapeReportHtml(trx.id)}</td>
@@ -1865,8 +2461,9 @@ function exportHistoryReport(format) {
         <td>${escapeReportHtml(trx.durationText)}</td>
         <td>${escapeReportHtml(itemDetails || '-')}</td>
         <td>${Number(trx.rentalCost || 0)}</td>
-        <td>${Number(trx.itemsCost || 0)}</td>
         <td>${Number(trx.totalCost || 0)}</td>
+        <td>${getTransactionPaidAmount(trx)}</td>
+        <td>${getTransactionPaymentSummary(trx)}</td>
         <td>${escapeReportHtml(trx.paymentMethod)}</td>
       </tr>`;
   }).join('');
@@ -1878,6 +2475,10 @@ function exportHistoryReport(format) {
       <td>${escapeReportHtml(shift.endTime === null || shift.endTime === undefined ? 'Sedang jaga' : formatAttendantShiftTime(shift.endTime))}</td>
       <td>${shift.count}</td>
       <td>Rp ${shift.total.toLocaleString('id-ID')}</td>
+      <td>Rp ${shift.rental.toLocaleString('id-ID')}</td>
+      <td>Rp ${shift.items.Minuman.amount.toLocaleString('id-ID')} (${shift.items.Minuman.qty})</td>
+      <td>Rp ${shift.items.Makanan.amount.toLocaleString('id-ID')} (${shift.items.Makanan.qty})</td>
+      <td>Rp ${shift.items.Snack.amount.toLocaleString('id-ID')} (${shift.items.Snack.qty})</td>
     </tr>`).join('');
   const expenseRows = expenses.map(expense => `
     <tr>
@@ -1885,6 +2486,15 @@ function exportHistoryReport(format) {
       <td>${escapeReportHtml(expense.category)}</td>
       <td>${escapeReportHtml(expense.description || '-')}</td>
       <td>Rp ${Number(expense.amount || 0).toLocaleString('id-ID')}</td>
+    </tr>`).join('');
+  const paymentRows = paymentRecords.map(payment => `
+    <tr>
+      <td>${escapeReportHtml(payment.date.toLocaleString('id-ID'))}</td>
+      <td>${escapeReportHtml(payment.transactionId)}</td>
+      <td>${escapeReportHtml(payment.unitName)}</td>
+      <td>${escapeReportHtml(payment.type)}</td>
+      <td>${escapeReportHtml(payment.method)}</td>
+      <td>Rp ${payment.amount.toLocaleString('id-ID')}</td>
     </tr>`).join('');
 
   const title = `Rekap Riwayat Transaksi - ${getReportPeriodLabel(filterKey)}`;
@@ -1905,28 +2515,34 @@ function exportHistoryReport(format) {
       <div class="summary">
         <p>Jumlah Transaksi: ${history.length}</p>
         <p>Pendapatan Rental PS: Rp ${totals.rental.toLocaleString('id-ID')}</p>
-        <p>Pendapatan Menu: Rp ${totals.items.toLocaleString('id-ID')}</p>
-        <p><strong>Total Omset: Rp ${totals.total.toLocaleString('id-ID')}</strong></p>
+        <p><strong>Total Tagihan: Rp ${totals.total.toLocaleString('id-ID')}</strong></p>
+        <p>Total Sudah Dibayar: Rp ${totals.paid.toLocaleString('id-ID')}</p>
         <p>Total Pengeluaran: Rp ${totals.expenses.toLocaleString('id-ID')}</p>
         <p><strong>Saldo Bersih: Rp ${totals.net.toLocaleString('id-ID')}</strong></p>
       </div>
       <h2>Rekap Jaga Petugas</h2>
       <table>
-        <thead><tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Jumlah Transaksi</th><th>Total Omzet</th></tr></thead>
-        <tbody>${attendantShiftTableRows || '<tr><td colspan="5">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
-        <tfoot><tr><th colspan="3">TOTAL</th><th>${attendantShiftRows.reduce((sum, shift) => sum + shift.count, 0)}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.total, 0).toLocaleString('id-ID')}</th></tr></tfoot>
+        <thead><tr><th>Nama Petugas</th><th>Mulai Jaga</th><th>Selesai Jaga</th><th>Jumlah Transaksi</th><th>Omzet Keseluruhan</th><th>Rental PS</th><th>Minuman</th><th>Makanan</th><th>Snack</th></tr></thead>
+        <tbody>${attendantShiftTableRows || '<tr><td colspan="9">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
+        <tfoot><tr><th colspan="3">TOTAL</th><th>${attendantShiftRows.reduce((sum, shift) => sum + shift.count, 0)}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.total, 0).toLocaleString('id-ID')}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.rental, 0).toLocaleString('id-ID')}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.items.Minuman.amount, 0).toLocaleString('id-ID')}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.items.Makanan.amount, 0).toLocaleString('id-ID')}</th><th>Rp ${attendantShiftRows.reduce((sum, shift) => sum + shift.items.Snack.amount, 0).toLocaleString('id-ID')}</th></tr></tfoot>
       </table>
       <table>
         <thead><tr>
           <th>ID Transaksi</th><th>Waktu</th><th>Petugas</th><th>Unit</th><th>Durasi</th>
-          <th>Menu yang Diambil</th><th>Biaya Rental (Rp)</th><th>Biaya Menu (Rp)</th>
-          <th>Total Bayar (Rp)</th><th>Metode Pembayaran</th>
+          <th>Menu yang Diambil</th><th>Biaya Rental (Rp)</th>
+          <th>Total Tagihan (Rp)</th><th>Sudah Dibayar (Rp)</th><th>Rincian Pembayaran</th><th>Metode Pembayaran</th>
         </tr></thead>
-        <tbody>${transactionRows || '<tr><td colspan="10">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
+        <tbody>${transactionRows || '<tr><td colspan="11">Tidak ada transaksi pada periode ini.</td></tr>'}</tbody>
         <tfoot><tr>
-          <th colspan="6">TOTAL</th><th>${totals.rental}</th><th>${totals.items}</th>
-          <th>${totals.total}</th><th></th>
+          <th colspan="6">TOTAL</th><th>${totals.rental}</th>
+          <th>${totals.total}</th><th>${totals.paid}</th><th></th><th></th>
         </tr>        </tfoot>
+      </table>
+      <h2>Rincian Uang Diterima</h2>
+      <table>
+        <thead><tr><th>Waktu Pembayaran</th><th>ID Transaksi</th><th>Unit</th><th>Jenis</th><th>Metode</th><th>Jumlah</th></tr></thead>
+        <tbody>${paymentRows || '<tr><td colspan="6">Tidak ada pembayaran pada periode ini.</td></tr>'}</tbody>
+        <tfoot><tr><th colspan="5">TOTAL DITERIMA</th><th>Rp ${paymentRecords.reduce((sum, payment) => sum + payment.amount, 0).toLocaleString('id-ID')}</th></tr></tfoot>
       </table>
       <h2>Pengeluaran</h2>
       <table>
@@ -2031,21 +2647,25 @@ function renderAdminHistory() {
 
   const history = getAdminFilteredTransactions(db);
   history.forEach(trx => {
+    const remainingAmount = getTransactionRemainingAmount(trx);
     const row = document.createElement('tr');
     row.innerHTML = `
       <td><strong>${trx.id}</strong></td>
       <td>${trx.date}</td>
-      <td>${trx.unitName}<br><small>${trx.durationText}</small></td>
+      <td>${escapeReportHtml(trx.unitName)}<br><small>${escapeReportHtml(trx.durationText)}</small><br><small>${escapeReportHtml(getTransactionItemSummary(trx) || 'Tidak ada menu')}</small></td>
       <td>${formatRupiah(trx.totalCost)}</td>
+      <td>${formatRupiah(getTransactionPaidAmount(trx))}<br><small>${getTransactionPaymentSummary(trx)}</small></td>
+      <td>${formatRupiah(remainingAmount)}</td>
       <td><span class="badge ${trx.paymentMethod === 'QRIS' ? 'badge-running' : 'badge-ready'}">${trx.paymentMethod}</span></td>
       <td>
+        ${remainingAmount > 0 ? `<button class="btn btn-success" onclick="openReceivePaymentModal('${escapeReportHtml(trx.id)}')">Catat Bayar</button>` : ''}
         <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="deleteHistoryTransaction('${trx.id}')">Hapus</button>
       </td>
     `;
     tbody.appendChild(row);
   });
   if (history.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada transaksi pada tanggal yang dipilih.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada transaksi pada tanggal yang dipilih.</td></tr>';
   }
 }
 
@@ -2075,6 +2695,15 @@ function renderAdminAttendantShifts() {
   visibleShifts.forEach(shift => {
     const transactions = history.filter(trx => trx.shiftId === shift.id);
     const total = transactions.reduce((sum, trx) => sum + (Number(trx.totalCost) || 0), 0);
+    const rental = transactions.reduce((sum, trx) => sum + (Number(trx.rentalCost) || 0), 0);
+    const breakdown = transactions.reduce((result, trx) => {
+      const items = getTransactionItemBreakdown(trx);
+      Object.keys(result).forEach(category => {
+        result[category].amount += items[category].amount;
+        result[category].qty += items[category].qty;
+      });
+      return result;
+    }, { Minuman: { amount: 0, qty: 0 }, Makanan: { amount: 0, qty: 0 }, Snack: { amount: 0, qty: 0 } });
     const isActive = activeShift && activeShift.id === shift.id;
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -2083,6 +2712,10 @@ function renderAdminAttendantShifts() {
       <td>${isActive ? 'Sedang jaga' : escapeReportHtml(formatAttendantShiftTime(shift.endTime))}</td>
       <td>${transactions.length}</td>
       <td><strong>${formatRupiah(total)}</strong></td>
+      <td>${formatRupiah(rental)}</td>
+      <td>${formatRupiah(breakdown.Minuman.amount)} (${breakdown.Minuman.qty})</td>
+      <td>${formatRupiah(breakdown.Makanan.amount)} (${breakdown.Makanan.qty})</td>
+      <td>${formatRupiah(breakdown.Snack.amount)} (${breakdown.Snack.qty})</td>
       <td class="admin-action-cell">
         <button class="btn btn-secondary" onclick="editAttendantShift('${escapeReportHtml(shift.id)}')">Edit</button>
         <button class="btn btn-danger" onclick="deleteAttendantShift('${escapeReportHtml(shift.id)}')">Hapus</button>
@@ -2092,7 +2725,7 @@ function renderAdminAttendantShifts() {
   });
 
   if (visibleShifts.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada riwayat jaga pada tanggal yang dipilih.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada riwayat jaga pada tanggal yang dipilih.</td></tr>';
   }
 }
 
