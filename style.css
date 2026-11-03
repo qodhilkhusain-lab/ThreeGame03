@@ -916,15 +916,36 @@ tr:last-child td {
   box-shadow: inset 0 0 0 1px rgba(148,163,184,0.2);
 }
 
+.order-qty-control:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .order-product-qty {
   width: 72px !important;
+  min-width: 40px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
   text-align: center;
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a !important;
-  background: #ffffff !important;
-  border: 1px solid rgba(148, 163, 184, 0.35) !important;
-  box-shadow: none !important;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.checkout-items-list {
+  margin: 4px 0 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+}
+
+.checkout-items-list .receipt-item {
+  font-size: 13px;
+}
+
+.checkout-items-list .receipt-item-details strong {
+  color: #f8fafc;
 }
 
 .form-control {
@@ -1563,11 +1584,9 @@ tr:last-child td {
   font-size: 11px;
 }
 
-.initial-order-row input {
-  width: 84px;
-  flex: 0 0 84px;
-  color: #111827;
-  background: #fff;
+.initial-order-controls {
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .payment-option {

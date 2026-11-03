@@ -525,16 +525,17 @@
           <span id="receiptDuration">-</span>
         </div>
         <div class="receipt-row">
-          <span>Biaya Rental:</span>
-          <span id="receiptRentalCost">Rp 0</span>
+          <span id="receiptRentalLabel">Biaya Rental:</span>
+          <strong id="receiptRentalCost">Rp 0</strong>
         </div>
         <div class="receipt-row">
           <span>Minuman & Makanan:</span>
-          <span id="receiptItemsCost">Rp 0</span>
+          <strong id="receiptItemsCost">Rp 0</strong>
         </div>
+        <div id="receiptItemsList" class="receipt-items-list checkout-items-list"></div>
         <div class="receipt-row receipt-total">
-          <span>TOTAL TAGIHAN:</span>
-          <span id="receiptTotal">Rp 0</span>
+          <span>Total Rental + Menu:</span>
+          <strong id="receiptTotal">Rp 0</strong>
         </div>
         <div class="receipt-row">
           <span>Sudah dibayar:</span>
@@ -619,7 +620,7 @@
         <select id="moveRunningUnitSelect" class="form-control">
           <option value="">Pilih TV tujuan</option>
         </select>
-            <button id="moveRunningUnitButton" class="btn btn-secondary" style="width:100%; margin-top:8px;" onclick="moveRunningUnit()">Pindahkan Sesi</button>
+        <button id="moveRunningUnitButton" class="btn btn-secondary" style="width:100%; margin-top:8px;" onclick="moveRunningUnit()">Pindahkan Sesi</button>
       </section>
       <button class="btn btn-danger" style="width: 100%;" onclick="continueRunningUnitToPayment()">⏹ Selesai & Lanjut Pembayaran</button>
     </div>
@@ -631,7 +632,7 @@
         <h3>Bayar Menu</h3>
         <button class="close-btn" onclick="closeAllModals()">&times;</button>
       </div>
-      <p id="runningMenuPaymentSummary">Pilih jumlah menu yang akan dibayar.</p>
+      <p id="runningMenuPaymentSummary">Atur jumlah tiap menu yang ingin dibayar.</p>
       <div id="runningMenuPaymentItems" class="running-menu-payment-items"></div>
       <div class="form-group">
         <label for="runningMenuPaymentMethod">Metode pembayaran</label>

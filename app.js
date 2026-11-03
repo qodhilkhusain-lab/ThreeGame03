@@ -430,6 +430,13 @@ function getUnitOutstandingAmount(unit, rentalCost) {
   return Math.max(0, rentalCost - getUnitPaidRentalAmount(unit)) + getUnitUnpaidMenuAmount(unit);
 }
 
+function getUnitRatePerHour(unit) {
+  const sessionRate = Number(unit.sessionRatePerHour);
+  return Number.isFinite(sessionRate) && sessionRate > 0
+    ? sessionRate
+    : Number(unit.ratePerHour) || 0;
+}
+
 function calculateCost(ratePerHour, elapsedSec, targetMinutes) {
   if (targetMinutes > 0) {
     return Math.round((targetMinutes / 60) * ratePerHour);
@@ -617,7 +624,7 @@ function renderUnits() {
 
     if (isRunning && unit.startTime) {
       elapsedSec = Math.floor((Date.now() - unit.startTime) / 1000);
-      rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
+      rentalCost = calculateCost(getUnitRatePerHour(unit), elapsedSec, unit.targetMinutes);
       timerLabel = formatTimer(elapsedSec, unit.targetMinutes);
     }
 
@@ -638,7 +645,7 @@ function renderUnits() {
             ${isRunning ? (unit.targetMinutes === 0 ? 'LOSS · Berjalan' : `Paket ${unit.targetMinutes} menit`) : 'Siap digunakan'}
           </span>
         </div>
-        <div class="unit-rate">Tarif: ${formatRupiah(unit.ratePerHour)} / jam</div>
+        <div class="unit-rate">Tarif: ${formatRupiah(getUnitRatePerHour(unit))} / jam</div>
         
         <div class="timer-box">
           ${isRunning ? `
@@ -678,7 +685,8 @@ function openRunningUnitDetails(unitId) {
 
   const now = Date.now();
   const elapsedSec = Math.floor((now - unit.startTime) / 1000);
-  const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
+  const ratePerHour = getUnitRatePerHour(unit);
+  const rentalCost = calculateCost(ratePerHour, elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((total, item) => total + item.price * item.qty, 0);
   const paidMenuAmount = getUnitPaidMenuAmount(unit);
@@ -694,7 +702,7 @@ function openRunningUnitDetails(unitId) {
     : 'Mode LOSS';
   document.getElementById('runningDetailsDuration').textContent =
     `${formatRentalTimeRange(unit.startTime, now)} (Berjalan) • ${playMode} • ${formatTimer(elapsedSec, unit.targetMinutes)}`;
-  document.getElementById('runningDetailsUnitRate').textContent = `${formatRupiah(unit.ratePerHour)} / jam`;
+  document.getElementById('runningDetailsUnitRate').textContent = `${formatRupiah(ratePerHour)} / jam`;
   document.getElementById('runningDetailsRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('runningDetailsItemsCost').textContent = formatRupiah(itemsCost);
   document.getElementById('runningDetailsGrandTotal').textContent = formatRupiah(rentalCost + itemsCost);
@@ -765,6 +773,12 @@ function renderRunningUnitTransferOptions(unit) {
   const button = document.getElementById('moveRunningUnitButton');
   if (!select || !button) return;
 
+  const selectedUnitId = select.value;
+  if (selectedUnitId && Array.from(select.options).some(option => option.value === selectedUnitId)) {
+    button.disabled = false;
+    return;
+  }
+
   const availableUnits = getDB().units.filter(candidate =>
     candidate.id !== unit.id
     && candidate.status === 'ready'
@@ -773,12 +787,21 @@ function renderRunningUnitTransferOptions(unit) {
     && !(candidate.payments || []).length
     && !Number(candidate.rentalPaidAmount)
   );
-  select.replaceChildren(new Option('Pilih TV tujuan', ''));
+  select.replaceChildren(new Option(
+    availableUnits.length ? 'Pilih TV tujuan' : 'Tidak ada TV kosong tersedia',
+    ''
+  ));
   availableUnits.forEach(candidate => {
     select.add(new Option(`TV ${getUnitDisplayName(candidate.name)}`, candidate.id));
   });
+  select.value = availableUnits.some(candidate => candidate.id === selectedUnitId)
+    ? selectedUnitId
+    : '';
+  select.onchange = () => {
+    button.disabled = !select.value;
+  };
   select.disabled = availableUnits.length === 0;
-  button.disabled = availableUnits.length === 0;
+  button.disabled = !select.value;
 }
 
 function moveRunningUnit() {
@@ -787,7 +810,7 @@ function moveRunningUnit() {
   const destinationId = document.getElementById('moveRunningUnitSelect')?.value;
   const destination = db.units.find(unit => unit.id === destinationId);
   if (!source || source.status !== 'running' || !destination) {
-    alert('Sesi atau TV tujuan tidak ditemukan. Muat ulang data lalu coba kembali.');
+    alert('Pilih TV tujuan yang tersedia sebelum memindahkan sesi.');
     return;
   }
   if (!requireAttendantForTransaction(source, db)) return;
@@ -798,6 +821,8 @@ function moveRunningUnit() {
     && !Number(destination.rentalPaidAmount);
   if (!destinationIsEmpty) {
     alert('TV tujuan harus kosong dan tidak sedang digunakan.');
+    const destinationSelect = document.getElementById('moveRunningUnitSelect');
+    if (destinationSelect) destinationSelect.value = '';
     renderRunningUnitTransferOptions(source);
     return;
   }
@@ -806,6 +831,7 @@ function moveRunningUnit() {
   destination.status = 'running';
   destination.startTime = source.startTime;
   destination.targetMinutes = source.targetMinutes;
+  destination.sessionRatePerHour = getUnitRatePerHour(source);
   destination.orderItems = (source.orderItems || []).map(item => ({ ...item }));
   destination.payments = (source.payments || []).map(payment => ({ ...payment }));
   if (Number.isFinite(Number(source.rentalPaidAmount))) {
@@ -823,6 +849,7 @@ function moveRunningUnit() {
   source.targetMinutes = 0;
   source.orderItems = [];
   source.payments = [];
+  delete source.sessionRatePerHour;
   delete source.rentalPaidAmount;
   delete source.shiftId;
   delete source.attendantName;
@@ -850,7 +877,7 @@ function openRunningRentalPaymentModal() {
   const db = getDB();
   const unit = db.units.find(item => item.id === activeUnitId);
   if (!unit || unit.status !== 'running' || Number(unit.targetMinutes) <= 0) return;
-  const rentalCost = calculateCost(unit.ratePerHour, 0, unit.targetMinutes);
+  const rentalCost = calculateCost(getUnitRatePerHour(unit), 0, unit.targetMinutes);
   const outstandingRental = Math.max(0, rentalCost - getUnitPaidRentalAmount(unit));
   if (outstandingRental <= 0) return;
 
@@ -1013,7 +1040,7 @@ function recordRunningRentalPayment() {
     return;
   }
 
-  const rentalCost = calculateCost(unit.ratePerHour, 0, unit.targetMinutes);
+  const rentalCost = calculateCost(getUnitRatePerHour(unit), 0, unit.targetMinutes);
   const alreadyPaid = getUnitPaidRentalAmount(unit);
   const outstandingRental = Math.max(0, rentalCost - alreadyPaid);
   const amount = Number(document.getElementById('runningRentalPaymentAmount').value);
@@ -1062,7 +1089,7 @@ function openStartModal(unitId) {
   if (customInput) customInput.value = editingRentalDuration && unit.targetMinutes > 0 ? unit.targetMinutes : '';
 
   document.getElementById('startUnitTitle').textContent = `${editingRentalDuration ? 'Edit Durasi' : 'Mulai Rental'} - TV ${getUnitDisplayName(unit.name)}`;
-  document.getElementById('startUnitRate').textContent = `Tarif: ${formatRupiah(unit.ratePerHour)} / jam`;
+  document.getElementById('startUnitRate').textContent = `Tarif: ${formatRupiah(getUnitRatePerHour(unit))} / jam`;
   const startButton = document.getElementById('confirmStartRentalButton');
   if (startButton) startButton.textContent = editingRentalDuration ? 'Simpan Durasi Baru' : 'Mulai Main Sekarang';
   const initialOrders = document.getElementById('initialRentalOrders');
@@ -1138,7 +1165,7 @@ function updateStartRentalPrepaymentOption() {
     const db = getDB();
     const unit = db.units.find(item => item.id === activeUnitId);
     amountLabel.textContent = unit
-      ? `Biaya paket ${formatDurationDetail(chosenDurationMinutes * 60)}: ${formatRupiah(calculateCost(unit.ratePerHour, 0, chosenDurationMinutes))}`
+      ? `Biaya paket ${formatDurationDetail(chosenDurationMinutes * 60)}: ${formatRupiah(calculateCost(getUnitRatePerHour(unit), 0, chosenDurationMinutes))}`
       : '';
   }
 }
@@ -1188,13 +1215,14 @@ function confirmStartRental() {
     if (window.__expiredUnitAlarms) delete window.__expiredUnitAlarms[unit.id];
   } else {
     const initialItems = Array.from(document.querySelectorAll('.start-order-product-qty'))
-      .map(input => ({ id: input.dataset.productId, qty: Number(input.value) || 0 }))
+      .map(quantity => ({ id: quantity.dataset.productId, qty: Number(quantity.dataset.qty) || 0 }))
       .filter(item => item.qty > 0);
     if (!validateOrderStock(db, initialItems)) return;
 
     unit.status = 'running';
     unit.startTime = Date.now();
     unit.targetMinutes = chosenDurationMinutes;
+    unit.sessionRatePerHour = Number(unit.ratePerHour) || 0;
     unit.orderItems = [];
     unit.payments = [];
     delete unit.rentalPaidAmount;
@@ -1202,7 +1230,7 @@ function confirmStartRental() {
     unit.attendantName = activeShift.staffName;
     appendOrderItems(db, unit, initialItems);
     if (chosenDurationMinutes > 0 && document.getElementById('startRentalPaidNow').checked) {
-      const rentalAmount = calculateCost(unit.ratePerHour, 0, chosenDurationMinutes);
+      const rentalAmount = calculateCost(getUnitRatePerHour(unit), 0, chosenDurationMinutes);
       unit.rentalPaidAmount = rentalAmount;
       unit.payments.push({
         amount: rentalAmount,
@@ -1223,14 +1251,65 @@ function renderInitialRentalProducts() {
   const list = document.getElementById('initialRentalProductList');
   if (!list) return;
   const db = getDB();
-  list.innerHTML = db.products.map(product => {
+  list.replaceChildren();
+  db.products.forEach(product => {
     const stockValue = productStockValue(product);
     const max = stockValue === null ? 999 : Math.max(0, stockValue);
-    return `<div class="initial-order-row">
-      <span><strong>${escapeReportHtml(product.name)}</strong><small>${escapeReportHtml(product.category)} · ${formatRupiah(product.price)}${stockValue === null ? '' : ` · Stok ${stockValue}`}</small></span>
-      <input class="form-control start-order-product-qty" type="number" data-product-id="${escapeReportHtml(product.id)}" value="0" min="0" max="${max}" aria-label="Jumlah ${escapeReportHtml(product.name)}">
-    </div>`;
-  }).join('') || '<p>Belum ada menu yang tersedia.</p>';
+    const row = document.createElement('div');
+    row.className = 'initial-order-row';
+    const details = document.createElement('span');
+    const name = document.createElement('strong');
+    name.textContent = product.name;
+    const meta = document.createElement('small');
+    meta.textContent = `${product.category} · ${formatRupiah(product.price)}${stockValue === null ? '' : ` · Stok ${stockValue}`}`;
+    details.append(name, meta);
+
+    const controls = document.createElement('div');
+    controls.className = 'order-product-controls initial-order-controls';
+    const quantity = document.createElement('output');
+    quantity.className = 'start-order-product-qty';
+    quantity.dataset.productId = product.id;
+    quantity.dataset.qty = '0';
+    quantity.dataset.max = String(max);
+    quantity.textContent = '0';
+    quantity.setAttribute('aria-label', `Jumlah ${product.name}`);
+
+    const decreaseButton = document.createElement('button');
+    decreaseButton.type = 'button';
+    decreaseButton.className = 'order-qty-control';
+    decreaseButton.textContent = '-';
+    decreaseButton.disabled = true;
+    decreaseButton.setAttribute('aria-label', `Kurangi ${product.name}`);
+    decreaseButton.addEventListener('click', () => adjustInitialOrderQty(product.id, -1));
+
+    const increaseButton = document.createElement('button');
+    increaseButton.type = 'button';
+    increaseButton.className = 'order-qty-control';
+    increaseButton.textContent = '+';
+    increaseButton.disabled = max === 0;
+    increaseButton.setAttribute('aria-label', `Tambah ${product.name}`);
+    increaseButton.addEventListener('click', () => adjustInitialOrderQty(product.id, 1));
+    controls.append(decreaseButton, quantity, increaseButton);
+    row.append(details, controls);
+    list.appendChild(row);
+  });
+  if (!db.products.length) list.textContent = 'Belum ada menu yang tersedia.';
+}
+
+function adjustInitialOrderQty(productId, delta) {
+  const quantity = Array.from(document.querySelectorAll('.start-order-product-qty'))
+    .find(element => element.dataset.productId === productId);
+  if (!quantity) return;
+
+  const currentQty = Number(quantity.dataset.qty) || 0;
+  const maxQty = Number(quantity.dataset.max) || 0;
+  const nextQty = Math.max(0, Math.min(maxQty, currentQty + delta));
+  quantity.dataset.qty = String(nextQty);
+  quantity.textContent = String(nextQty);
+
+  const controls = quantity.closest('.initial-order-controls');
+  controls.querySelector('button:first-child').disabled = nextQty === 0;
+  controls.querySelector('button:last-child').disabled = nextQty === maxQty;
 }
 
 function validateOrderStock(db, selectedItems) {
@@ -1310,22 +1389,22 @@ function renderOrderProductList(filter = 'Semua') {
           <div class="order-product-meta">${product.category} • ${formatRupiah(product.price)} • ${stockText}</div>
         </div>
         <div class="order-product-controls">
-          <button type="button" class="order-qty-control" onclick="adjustOrderQty('${product.id}', -1)">-</button>
-          <input type="number" class="order-product-qty form-control" data-product-id="${product.id}" value="0" min="0" max="${stockValue === null ? 999 : stockValue}" />
-          <button type="button" class="order-qty-control" onclick="adjustOrderQty('${product.id}', 1)">+</button>
+          <button type="button" class="order-qty-control" onclick="adjustOrderQty('${product.id}', -1)" aria-label="Kurangi ${product.name}">-</button>
+          <output class="order-product-qty" data-product-id="${product.id}" data-qty="0" data-max="${stockValue === null ? 999 : stockValue}" aria-label="Jumlah ${product.name}">0</output>
+          <button type="button" class="order-qty-control" onclick="adjustOrderQty('${product.id}', 1)" aria-label="Tambah ${product.name}" ${stockValue === 0 ? 'disabled' : ''}>+</button>
         </div>
       </div>
     `;
   }).join('');
-  listEl.querySelectorAll('.order-product-qty').forEach(input => {
-    input.addEventListener('input', updateSelectedOrderCount);
+  listEl.querySelectorAll('.order-product-qty').forEach(quantity => {
+    quantity.closest('.order-product-controls').querySelector('button:first-child').disabled = true;
   });
   updateSelectedOrderCount();
 }
 
 function updateSelectedOrderCount() {
   const selectedCount = Array.from(document.querySelectorAll('.order-product-qty'))
-    .reduce((total, input) => total + (parseInt(input.value, 10) || 0), 0);
+    .reduce((total, quantity) => total + (Number(quantity.dataset.qty) || 0), 0);
   const button = document.getElementById('addSelectedItemsButton');
   if (!button) return;
   button.disabled = selectedCount === 0;
@@ -1335,22 +1414,18 @@ function updateSelectedOrderCount() {
 }
 
 function adjustOrderQty(productId, delta) {
-  const qtyInputs = document.querySelectorAll('.order-product-qty');
-  const target = Array.from(qtyInputs).find(input => input.dataset.productId === productId);
+  const quantities = document.querySelectorAll('.order-product-qty');
+  const target = Array.from(quantities).find(quantity => quantity.dataset.productId === productId);
   if (!target) return;
 
-  const db = getDB();
-  const product = db.products.find(item => item.id === productId);
-  const stockValue = product ? productStockValue(product) : null;
-  const currentValue = parseInt(target.value, 10) || 0;
-  const nextValue = Math.max(0, currentValue + delta);
-
-  if (stockValue !== null && nextValue > stockValue) {
-    alert(`Stok tidak mencukupi! Sisa stok hanya ${stockValue}.`);
-    return;
-  }
-
-  target.value = nextValue;
+  const currentValue = Number(target.dataset.qty) || 0;
+  const maxValue = Number(target.dataset.max) || 0;
+  const nextValue = Math.max(0, Math.min(maxValue, currentValue + delta));
+  target.dataset.qty = String(nextValue);
+  target.textContent = String(nextValue);
+  const controls = target.closest('.order-product-controls');
+  controls.querySelector('button:first-child').disabled = nextValue === 0;
+  controls.querySelector('button:last-child').disabled = nextValue === maxValue;
   updateSelectedOrderCount();
 }
 
@@ -1395,9 +1470,9 @@ function addSelectedItemsToUnit() {
   if (!requireAttendantForTransaction(unit)) return;
 
   const selectedItems = Array.from(document.querySelectorAll('.order-product-qty'))
-    .map(input => ({
-      id: input.dataset.productId,
-      qty: parseInt(input.value, 10) || 0
+    .map(quantity => ({
+      id: quantity.dataset.productId,
+      qty: Number(quantity.dataset.qty) || 0
     }))
     .filter(item => item.qty > 0);
 
@@ -1412,7 +1487,10 @@ function addSelectedItemsToUnit() {
 
   if (!saveDB(db)) return;
   renderUnits();
-  document.querySelectorAll('.order-product-qty').forEach(input => { input.value = 0; });
+  document.querySelectorAll('.order-product-qty').forEach(quantity => {
+    quantity.dataset.qty = '0';
+    quantity.textContent = '0';
+  });
   const categoryFilter = document.getElementById('orderCategoryFilter');
   renderOrderProductList(categoryFilter ? categoryFilter.value : 'Semua');
   const feedback = document.getElementById('orderProductFeedback');
@@ -1432,7 +1510,7 @@ function openStopModal(unitId) {
   activeUnitId = unitId;
   const endTime = Date.now();
   const elapsedSec = Math.floor((endTime - unit.startTime) / 1000);
-  const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
+  const rentalCost = calculateCost(getUnitRatePerHour(unit), elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
   const grandTotal = rentalCost + itemsCost;
@@ -1448,8 +1526,37 @@ function openStopModal(unitId) {
   document.getElementById('receiptUnitName').textContent = `TV ${getUnitDisplayName(unit.name)}`;
   document.getElementById('receiptDuration').textContent =
     `${formatRentalTimeRange(unit.startTime, endTime)} • ${durDesc}`;
+  document.getElementById('receiptRentalLabel').textContent = unit.targetMinutes > 0
+    ? `Biaya Rental Paket (${formatDurationDetail(unit.targetMinutes * 60)}):`
+    : `Biaya Rental LOSS (${formatDurationDetail(elapsedSec)}):`;
   document.getElementById('receiptRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('receiptItemsCost').textContent = formatRupiah(itemsCost);
+  const receiptItemsList = document.getElementById('receiptItemsList');
+  receiptItemsList.replaceChildren();
+  if (items.length === 0) {
+    const emptyMessage = document.createElement('p');
+    emptyMessage.className = 'receipt-items-empty';
+    emptyMessage.textContent = 'Tidak ada menu yang diambil.';
+    receiptItemsList.appendChild(emptyMessage);
+  } else {
+    items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'receipt-item';
+      const details = document.createElement('div');
+      details.className = 'receipt-item-details';
+      const name = document.createElement('strong');
+      name.textContent = item.name;
+      const quantity = Math.max(0, Number(item.qty) || 0);
+      const unitPrice = Math.max(0, Number(item.price) || 0);
+      const breakdown = document.createElement('span');
+      breakdown.textContent = `${item.category || 'Menu'} · ${formatRupiah(unitPrice)} × ${quantity}`;
+      const subtotal = document.createElement('strong');
+      subtotal.textContent = formatRupiah(unitPrice * quantity);
+      details.append(name, breakdown);
+      row.append(details, subtotal);
+      receiptItemsList.appendChild(row);
+    });
+  }
   document.getElementById('receiptTotal').textContent = formatRupiah(grandTotal);
   document.getElementById('receiptAlreadyPaid').textContent = formatRupiah(paidAmount);
   document.getElementById('receiptOutstanding').textContent = formatRupiah(Math.max(0, grandTotal - paidAmount));
@@ -1465,7 +1572,7 @@ function processPayment() {
   const checkoutMethod = document.getElementById('paymentMethodSelect').value;
   const endTime = Date.now();
   const elapsedSec = Math.floor((endTime - unit.startTime) / 1000);
-  const rentalCost = calculateCost(unit.ratePerHour, elapsedSec, unit.targetMinutes);
+  const rentalCost = calculateCost(getUnitRatePerHour(unit), elapsedSec, unit.targetMinutes);
   const items = unit.orderItems || [];
   const itemsCost = items.reduce((acc, it) => acc + (it.price * it.qty), 0);
   const grandTotal = rentalCost + itemsCost;
@@ -1523,6 +1630,7 @@ function processPayment() {
   unit.orderItems = [];
   unit.payments = [];
   delete unit.rentalPaidAmount;
+  delete unit.sessionRatePerHour;
   delete unit.shiftId;
   delete unit.attendantName;
 
