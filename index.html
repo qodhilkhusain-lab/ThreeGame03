@@ -86,11 +86,11 @@
           <div class="value" id="statTotalOmset">Rp 0</div>
         </div>
         <div class="stat-card blue">
-          <div class="label">Total Tagihan</div>
+          <div class="label">Total Biaya Menu & Snack</div>
           <div class="value" id="statTotalBilled">Rp 0</div>
         </div>
         <div class="stat-card blue">
-          <div class="label">Tagihan Rental PS</div>
+          <div class="label">Total Biaya Rental</div>
           <div class="value" id="statTotalRental">Rp 0</div>
         </div>
         <div class="stat-card">
@@ -208,8 +208,7 @@
               <th>Petugas</th>
               <th>Unit & Durasi</th>
               <th>Biaya Rental</th>
-              <th>Minuman/Snack</th>
-              <th>Total Tagihan</th>
+              <th>Biaya Menu & Snack</th>
               <th>Sudah Dibayar</th>
               <th>Sisa Tagihan</th>
               <th>Metode</th>
@@ -389,7 +388,8 @@
                 <th>ID</th>
                 <th>Waktu</th>
                 <th>Unit</th>
-                <th>Total Tagihan</th>
+                <th>Biaya Rental</th>
+                <th>Biaya Menu & Snack</th>
                 <th>Dibayar</th>
                 <th>Sisa</th>
                 <th>Metode</th>
@@ -579,7 +579,7 @@
         </div>
         <div class="receipt-row">
           <span id="runningDetailsRentalLabel">Biaya Rental:</span>
-          <span id="runningDetailsRentalCost">Rp 0</span>
+          <strong id="runningDetailsRentalCost">Rp 0</strong>
         </div>
         <div class="receipt-row">
           <span>Rental sudah dibayar:</span>
@@ -587,7 +587,7 @@
         </div>
         <div class="receipt-row">
           <span>Menu:</span>
-          <span id="runningDetailsItemsCost">Rp 0</span>
+          <strong id="runningDetailsItemsCost">Rp 0</strong>
         </div>
         <div class="receipt-row">
           <span>Menu belum dibayar:</span>
@@ -600,6 +600,10 @@
         <div class="receipt-items-section">
           <strong>Menu yang Diambil</strong>
           <div id="runningDetailsItemsList" class="receipt-items-list"></div>
+          <div class="receipt-row receipt-total running-details-grand-total">
+            <span>TOTAL BIAYA RENTAL + MENU:</span>
+            <strong id="runningDetailsGrandTotal">Rp 0</strong>
+          </div>
         </div>
         <div class="receipt-row receipt-total">
           <span>TOTAL BELUM DIBAYAR:</span>
@@ -610,6 +614,13 @@
       <button id="payRunningMenuButton" class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="openRunningMenuPaymentModal()">Bayar Menu Sekarang</button>
       <button class="btn btn-secondary" style="width: 100%; margin-bottom: 12px;" onclick="editRunningUnitDuration()">⏱ Edit / Tambah Durasi</button>
       <button class="btn btn-success" style="width: 100%; margin-bottom: 12px;" onclick="addMenuFromRunningDetails()">➕ Tambah Menu</button>
+      <section class="running-unit-transfer">
+        <label for="moveRunningUnitSelect">Pindah ke TV kosong</label>
+        <select id="moveRunningUnitSelect" class="form-control">
+          <option value="">Pilih TV tujuan</option>
+        </select>
+            <button id="moveRunningUnitButton" class="btn btn-secondary" style="width:100%; margin-top:8px;" onclick="moveRunningUnit()">Pindahkan Sesi</button>
+      </section>
       <button class="btn btn-danger" style="width: 100%;" onclick="continueRunningUnitToPayment()">⏹ Selesai & Lanjut Pembayaran</button>
     </div>
   </div>
@@ -631,7 +642,7 @@
       </div>
       <div class="receipt-row receipt-total">
         <span>Total pembayaran menu:</span>
-        <span id="runningMenuPaymentTotal">Rp 0</span>
+        <strong id="runningMenuPaymentTotal">Rp 0</strong>
       </div>
       <button class="btn btn-success" style="width:100%; margin-top:12px;" onclick="recordRunningMenuPayment()">Simpan Pembayaran Menu</button>
     </div>
@@ -644,6 +655,7 @@
         <button class="close-btn" onclick="closeAllModals()">&times;</button>
       </div>
       <p id="runningRentalPaymentSummary"></p>
+      <p id="runningRentalPaymentTotal" class="receipt-total"></p>
       <div class="form-group">
         <label for="runningRentalPaymentAmount">Pembayaran rental (Rp)</label>
         <input type="number" id="runningRentalPaymentAmount" class="form-control" min="1" step="1" required>

@@ -697,6 +697,7 @@ function openRunningUnitDetails(unitId) {
   document.getElementById('runningDetailsUnitRate').textContent = `${formatRupiah(unit.ratePerHour)} / jam`;
   document.getElementById('runningDetailsRentalCost').textContent = formatRupiah(rentalCost);
   document.getElementById('runningDetailsItemsCost').textContent = formatRupiah(itemsCost);
+  document.getElementById('runningDetailsGrandTotal').textContent = formatRupiah(rentalCost + itemsCost);
   document.getElementById('runningDetailsTotal').textContent = formatRupiah(outstandingAmount);
   const paidLabel = document.getElementById('runningDetailsPaidItems');
   if (paidLabel) paidLabel.textContent = formatRupiah(paidMenuAmount + paidRentalAmount);
@@ -708,6 +709,7 @@ function openRunningUnitDetails(unitId) {
   if (rentalPaymentButton) rentalPaymentButton.hidden = !(Number(unit.targetMinutes) > 0 && rentalCost > paidRentalAmount);
   const menuPaymentButton = document.getElementById('payRunningMenuButton');
   if (menuPaymentButton) menuPaymentButton.hidden = unpaidMenuAmount <= 0;
+  renderRunningUnitTransferOptions(unit);
 
   const itemsList = document.getElementById('runningDetailsItemsList');
   itemsList.replaceChildren();
@@ -727,12 +729,16 @@ function openRunningUnitDetails(unitId) {
       name.textContent = item.name;
       const quantity = document.createElement('span');
       const paidQty = Math.max(0, Math.min(Number(item.qty) || 0, Number(item.paidQty) || 0));
-      const unpaidQty = Math.max(0, (Number(item.qty) || 0) - paidQty);
+      const itemQty = Math.max(0, Number(item.qty) || 0);
+      const unitPrice = Math.max(0, Number(item.price) || 0);
+      const unpaidQty = Math.max(0, itemQty - paidQty);
       quantity.textContent = `${item.category || 'Menu'} · ${paidQty} lunas${unpaidQty ? `, ${unpaidQty} belum dibayar` : ''}`;
-      details.append(name, quantity);
+      const priceBreakdown = document.createElement('span');
+      priceBreakdown.textContent = `${formatRupiah(unitPrice)} × ${itemQty} = ${formatRupiah(unitPrice * itemQty)}`;
+      details.append(name, quantity, priceBreakdown);
 
       const subtotal = document.createElement('strong');
-      subtotal.textContent = `Sisa ${formatRupiah(item.price * unpaidQty)}`;
+      subtotal.textContent = `Belum dibayar ${formatRupiah(unitPrice * unpaidQty)}`;
       row.append(details, subtotal);
       itemsList.appendChild(row);
     });
@@ -752,6 +758,80 @@ function formatRentalTimeRange(startTime, endTime) {
     minute: '2-digit'
   });
   return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+}
+
+function renderRunningUnitTransferOptions(unit) {
+  const select = document.getElementById('moveRunningUnitSelect');
+  const button = document.getElementById('moveRunningUnitButton');
+  if (!select || !button) return;
+
+  const availableUnits = getDB().units.filter(candidate =>
+    candidate.id !== unit.id
+    && candidate.status === 'ready'
+    && !candidate.startTime
+    && !(candidate.orderItems || []).length
+    && !(candidate.payments || []).length
+    && !Number(candidate.rentalPaidAmount)
+  );
+  select.replaceChildren(new Option('Pilih TV tujuan', ''));
+  availableUnits.forEach(candidate => {
+    select.add(new Option(`TV ${getUnitDisplayName(candidate.name)}`, candidate.id));
+  });
+  select.disabled = availableUnits.length === 0;
+  button.disabled = availableUnits.length === 0;
+}
+
+function moveRunningUnit() {
+  const db = getDB();
+  const source = db.units.find(unit => unit.id === activeUnitId);
+  const destinationId = document.getElementById('moveRunningUnitSelect')?.value;
+  const destination = db.units.find(unit => unit.id === destinationId);
+  if (!source || source.status !== 'running' || !destination) {
+    alert('Sesi atau TV tujuan tidak ditemukan. Muat ulang data lalu coba kembali.');
+    return;
+  }
+  if (!requireAttendantForTransaction(source, db)) return;
+  const destinationIsEmpty = destination.status === 'ready'
+    && !destination.startTime
+    && !(destination.orderItems || []).length
+    && !(destination.payments || []).length
+    && !Number(destination.rentalPaidAmount);
+  if (!destinationIsEmpty) {
+    alert('TV tujuan harus kosong dan tidak sedang digunakan.');
+    renderRunningUnitTransferOptions(source);
+    return;
+  }
+  if (!confirm(`Pindahkan sesi TV ${getUnitDisplayName(source.name)} ke TV ${getUnitDisplayName(destination.name)}? Waktu mulai dan pembayaran sesi akan tetap berjalan.`)) return;
+
+  destination.status = 'running';
+  destination.startTime = source.startTime;
+  destination.targetMinutes = source.targetMinutes;
+  destination.orderItems = (source.orderItems || []).map(item => ({ ...item }));
+  destination.payments = (source.payments || []).map(payment => ({ ...payment }));
+  if (Number.isFinite(Number(source.rentalPaidAmount))) {
+    destination.rentalPaidAmount = Number(source.rentalPaidAmount);
+  } else {
+    delete destination.rentalPaidAmount;
+  }
+  if (source.shiftId) destination.shiftId = source.shiftId;
+  else delete destination.shiftId;
+  if (source.attendantName) destination.attendantName = source.attendantName;
+  else delete destination.attendantName;
+
+  source.status = 'ready';
+  source.startTime = null;
+  source.targetMinutes = 0;
+  source.orderItems = [];
+  source.payments = [];
+  delete source.rentalPaidAmount;
+  delete source.shiftId;
+  delete source.attendantName;
+
+  if (!saveDB(db)) return;
+  activeUnitId = destination.id;
+  closeAllModals();
+  renderUnits();
+  openRunningUnitDetails(destination.id);
 }
 
 function addMenuFromRunningDetails() {
@@ -776,6 +856,8 @@ function openRunningRentalPaymentModal() {
 
   document.getElementById('runningRentalPaymentSummary').textContent =
     `TV ${getUnitDisplayName(unit.name)} · Sisa rental paket ${formatRupiah(outstandingRental)}`;
+  document.getElementById('runningRentalPaymentTotal').textContent =
+    `Total pembayaran rental: ${formatRupiah(outstandingRental)}`;
   const amountInput = document.getElementById('runningRentalPaymentAmount');
   amountInput.max = outstandingRental;
   amountInput.value = outstandingRental;
@@ -788,7 +870,7 @@ function openRunningMenuPaymentModal() {
   if (!unit || unit.status !== 'running') return;
 
   document.getElementById('runningMenuPaymentSummary').textContent =
-    `TV ${getUnitDisplayName(unit.name)} · Pilih jumlah menu yang ingin dibayar sekarang.`;
+    `TV ${getUnitDisplayName(unit.name)} · Atur jumlah tiap menu yang ingin dibayar.`;
   const itemsContainer = document.getElementById('runningMenuPaymentItems');
   itemsContainer.replaceChildren();
   (unit.orderItems || []).forEach((item, index) => {
@@ -807,18 +889,32 @@ function openRunningMenuPaymentModal() {
     outstanding.textContent = `${unpaidQty} belum dibayar · ${formatRupiah((Number(item.price) || 0) * unpaidQty)}`;
     details.append(name, outstanding);
 
-    const quantityInput = document.createElement('input');
-    quantityInput.type = 'number';
-    quantityInput.className = 'form-control running-menu-payment-qty';
-    quantityInput.dataset.itemIndex = String(index);
-    quantityInput.min = '0';
-    quantityInput.max = String(unpaidQty);
-    quantityInput.step = '1';
-    quantityInput.value = '0';
-    quantityInput.setAttribute('aria-label', `Jumlah ${item.name} yang dibayar`);
-    quantityInput.addEventListener('input', updateRunningMenuPaymentTotal);
+    const quantityControl = document.createElement('div');
+    quantityControl.className = 'running-menu-payment-quantity-control';
+    const decreaseButton = document.createElement('button');
+    decreaseButton.type = 'button';
+    decreaseButton.className = 'running-menu-payment-qty-control';
+    decreaseButton.textContent = '−';
+    decreaseButton.disabled = true;
+    decreaseButton.setAttribute('aria-label', `Kurangi jumlah ${item.name} yang dibayar`);
+    decreaseButton.addEventListener('click', () => adjustRunningMenuPaymentQty(index, -1));
 
-    row.append(details, quantityInput);
+    const quantity = document.createElement('output');
+    quantity.className = 'running-menu-payment-qty';
+    quantity.dataset.itemIndex = String(index);
+    quantity.dataset.qty = '0';
+    quantity.textContent = '0';
+    quantity.setAttribute('aria-label', `Jumlah ${item.name} yang dibayar`);
+
+    const increaseButton = document.createElement('button');
+    increaseButton.type = 'button';
+    increaseButton.className = 'running-menu-payment-qty-control';
+    increaseButton.textContent = '+';
+    increaseButton.setAttribute('aria-label', `Tambah jumlah ${item.name} yang dibayar`);
+    increaseButton.addEventListener('click', () => adjustRunningMenuPaymentQty(index, 1));
+
+    quantityControl.append(decreaseButton, quantity, increaseButton);
+    row.append(details, quantityControl);
     itemsContainer.appendChild(row);
   });
 
@@ -830,15 +926,38 @@ function openRunningMenuPaymentModal() {
   document.getElementById('modalRunningMenuPayment').classList.add('open');
 }
 
+function adjustRunningMenuPaymentQty(itemIndex, delta) {
+  const quantity = Array.from(document.querySelectorAll('.running-menu-payment-qty'))
+    .find(element => Number(element.dataset.itemIndex) === itemIndex);
+  if (!quantity) return;
+
+  const db = getDB();
+  const unit = db.units.find(item => item.id === activeUnitId);
+  const item = unit && unit.orderItems[itemIndex];
+  if (!item) return;
+
+  const unpaidQty = Math.max(0, (Number(item.qty) || 0) - Math.max(0, Number(item.paidQty) || 0));
+  const nextQty = Math.max(0, Math.min(unpaidQty, (Number(quantity.dataset.qty) || 0) + delta));
+  quantity.dataset.qty = String(nextQty);
+  quantity.textContent = String(nextQty);
+
+  const row = quantity.closest('.running-menu-payment-row');
+  const decreaseButton = row.querySelector('.running-menu-payment-qty-control:first-child');
+  const increaseButton = row.querySelector('.running-menu-payment-qty-control:last-child');
+  decreaseButton.disabled = nextQty === 0;
+  increaseButton.disabled = nextQty === unpaidQty;
+  updateRunningMenuPaymentTotal();
+}
+
 function updateRunningMenuPaymentTotal() {
   const db = getDB();
   const unit = db.units.find(item => item.id === activeUnitId);
   if (!unit) return;
 
-  const total = Array.from(document.querySelectorAll('.running-menu-payment-qty')).reduce((sum, input) => {
-    const index = Number(input.dataset.itemIndex);
+  const total = Array.from(document.querySelectorAll('.running-menu-payment-qty')).reduce((sum, quantity) => {
+    const index = Number(quantity.dataset.itemIndex);
     const item = unit.orderItems[index];
-    const qty = Math.max(0, Math.min(Number(input.max) || 0, Number(input.value) || 0));
+    const qty = Math.max(0, Math.min(Number(quantity.dataset.qty) || 0, Number(item.qty) || 0));
     return sum + qty * (Number(item.price) || 0);
   }, 0);
   document.getElementById('runningMenuPaymentTotal').textContent = formatRupiah(total);
@@ -850,25 +969,26 @@ function recordRunningMenuPayment() {
   if (!unit || unit.status !== 'running') return;
 
   const selectedItems = Array.from(document.querySelectorAll('.running-menu-payment-qty'))
-    .map(input => {
-      const index = Number(input.dataset.itemIndex);
+    .map(quantity => {
+      const index = Number(quantity.dataset.itemIndex);
       const item = unit.orderItems[index];
-      const qty = Number(input.value);
+      if (!item) return null;
       const unpaidQty = Math.max(0, (Number(item.qty) || 0) - Math.max(0, Number(item.paidQty) || 0));
-      return { item, qty, unpaidQty };
+      return { item, qty: Number(quantity.dataset.qty), unpaidQty };
     });
-  if (selectedItems.some(({ qty, unpaidQty }) => !Number.isSafeInteger(qty) || qty < 0 || qty > unpaidQty)) {
-    alert('Jumlah menu yang dibayar tidak valid. Periksa kembali jumlah yang dipilih.');
+  if (selectedItems.some(selected => !selected || !Number.isSafeInteger(selected.qty) || selected.qty < 0 || selected.qty > selected.unpaidQty)) {
+    alert('Pilihan menu tidak valid. Periksa kembali menu yang akan dibayar.');
     return;
   }
 
-  const paymentAmount = selectedItems.reduce((total, { item, qty }) => total + qty * (Number(item.price) || 0), 0);
+  const itemsToPay = selectedItems.filter(({ qty }) => qty > 0);
+  const paymentAmount = itemsToPay.reduce((total, { item, qty }) => total + qty * (Number(item.price) || 0), 0);
   if (!Number.isSafeInteger(paymentAmount) || paymentAmount <= 0) {
     alert('Pilih jumlah menu yang akan dibayar terlebih dahulu.');
     return;
   }
 
-  selectedItems.forEach(({ item, qty }) => {
+  itemsToPay.forEach(({ item, qty }) => {
     item.paidQty = (Number(item.paidQty) || 0) + qty;
   });
   if (!Array.isArray(unit.payments)) unit.payments = [];
@@ -957,7 +1077,7 @@ function openStartModal(unitId) {
     durationNote.hidden = !editingRentalDuration;
     durationNote.textContent = unit.targetMinutes > 0
       ? `Durasi berjalan ${formatDurationDetail((Date.now() - unit.startTime) / 1000)}. Durasi paket hanya dapat diperpanjang (minimal ${unit.targetMinutes} menit).`
-      : `Mode LOSS sudah berjalan ${elapsedMinutes} menit. Durasi yang dipilih akan ditambahkan setelah waktu yang sudah berjalan.`;
+      : `Mode LOSS sudah berjalan ${elapsedMinutes} menit. Durasi paket yang dipilih dihitung dari awal sesi, sehingga waktu yang sudah berjalan mengurangi sisa durasi.`;
   }
 
   // Reset duration button active
@@ -1062,7 +1182,7 @@ function confirmStartRental() {
         ? Math.max(Number(unit.targetMinutes), chosenDurationMinutes, elapsedMinutes)
         : Number(unit.targetMinutes);
     } else {
-      unit.targetMinutes = chosenDurationMinutes > 0 ? elapsedMinutes + chosenDurationMinutes : 0;
+      unit.targetMinutes = chosenDurationMinutes > 0 ? chosenDurationMinutes : 0;
     }
     if (window.__nearFinishWarnedUnits) delete window.__nearFinishWarnedUnits[unit.id];
     if (window.__expiredUnitAlarms) delete window.__expiredUnitAlarms[unit.id];
@@ -1798,7 +1918,7 @@ function renderHistory() {
   tbody.innerHTML = '';
 
   const totalOmset = getCollectedPaymentsForPeriod(db, filterKey, filterError);
-  let totalBilled = 0;
+  let totalMenuCosts = 0;
   let totalRental = 0;
   const totalExpenses = filteredExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
 
@@ -1806,7 +1926,7 @@ function renderHistory() {
     const itemSummary = getTransactionItemSummary(trx);
     const paidAmount = getTransactionPaidAmount(trx);
     const remainingAmount = getTransactionRemainingAmount(trx);
-    totalBilled += Number(trx.totalCost) || 0;
+    totalMenuCosts += Number(trx.itemsCost) || 0;
     totalRental += Number(trx.rentalCost) || 0;
 
     const row = document.createElement('tr');
@@ -1817,7 +1937,6 @@ function renderHistory() {
       <td><strong>${trx.unitName}</strong><br><small>${trx.durationText}</small></td>
       <td>${formatRupiah(trx.rentalCost)}</td>
       <td>${formatRupiah(trx.itemsCost)}<br><small>${escapeReportHtml(itemSummary || 'Tidak ada menu')}</small></td>
-      <td><strong style="color:#1d4ed8;">${formatRupiah(trx.totalCost)}</strong></td>
       <td>${formatRupiah(paidAmount)}<br><small>${getTransactionPaymentSummary(trx)}</small></td>
       <td>${remainingAmount > 0 ? `<strong>${formatRupiah(remainingAmount)}</strong><br><button class="btn btn-success" onclick="openReceivePaymentModal('${escapeReportHtml(trx.id)}')">Catat Bayar</button>` : formatRupiah(0)}</td>
       <td><span class="badge ${trx.paymentMethod === 'QRIS' ? 'badge-running' : 'badge-ready'}">${escapeReportHtml(trx.paymentMethod || '-')}</span></td>
@@ -1828,7 +1947,7 @@ function renderHistory() {
   if (filteredHistory.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" style="padding: 20px; text-align: center; color: #64748b;">
+        <td colspan="9" style="padding: 20px; text-align: center; color: #64748b;">
           Tidak ada transaksi untuk periode yang dipilih.
         </td>
       </tr>
@@ -1836,7 +1955,7 @@ function renderHistory() {
   }
 
   document.getElementById('statTotalOmset').textContent = formatRupiah(totalOmset);
-  document.getElementById('statTotalBilled').textContent = formatRupiah(totalBilled);
+  document.getElementById('statTotalBilled').textContent = formatRupiah(totalMenuCosts);
   document.getElementById('statTotalRental').textContent = formatRupiah(totalRental);
   document.getElementById('statTotalTrx').textContent = filteredHistory.length;
   document.getElementById('statTotalExpense').textContent = formatRupiah(totalExpenses);
@@ -2653,7 +2772,8 @@ function renderAdminHistory() {
       <td><strong>${trx.id}</strong></td>
       <td>${trx.date}</td>
       <td>${escapeReportHtml(trx.unitName)}<br><small>${escapeReportHtml(trx.durationText)}</small><br><small>${escapeReportHtml(getTransactionItemSummary(trx) || 'Tidak ada menu')}</small></td>
-      <td>${formatRupiah(trx.totalCost)}</td>
+      <td>${formatRupiah(trx.rentalCost)}</td>
+      <td>${formatRupiah(trx.itemsCost)}</td>
       <td>${formatRupiah(getTransactionPaidAmount(trx))}<br><small>${getTransactionPaymentSummary(trx)}</small></td>
       <td>${formatRupiah(remainingAmount)}</td>
       <td><span class="badge ${trx.paymentMethod === 'QRIS' ? 'badge-running' : 'badge-ready'}">${trx.paymentMethod}</span></td>
@@ -2665,7 +2785,7 @@ function renderAdminHistory() {
     tbody.appendChild(row);
   });
   if (history.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada transaksi pada tanggal yang dipilih.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:16px; text-align:center; color:#94a3b8;">Tidak ada transaksi pada tanggal yang dipilih.</td></tr>';
   }
 }
 

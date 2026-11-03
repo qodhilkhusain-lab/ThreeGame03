@@ -1147,15 +1147,66 @@ tr:last-child td {
 
 .running-menu-payment-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 90px;
+  grid-template-columns: minmax(0, 1fr) 124px;
   align-items: center;
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(212, 175, 55, 0.15);
 }
 
+.running-menu-payment-quantity-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.running-menu-payment-qty-control {
+  width: 36px;
+  height: 40px;
+  flex: 0 0 36px;
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8d77a;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.running-menu-payment-qty-control:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .running-menu-payment-qty {
+  min-width: 24px;
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 800;
   text-align: center;
+}
+
+.running-unit-transfer {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.running-unit-transfer label {
+  display: block;
+  margin-bottom: 7px;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.start-rental-prepayment-amount {
+  color: #f8d77a;
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .receipt-item-details span,
@@ -1175,6 +1226,10 @@ tr:last-child td {
   border-top: 1px solid rgba(212, 175, 55, 0.15);
   padding-top: 8px;
   margin-top: 8px;
+}
+
+.running-details-grand-total {
+  margin-bottom: 0;
 }
 
 .unit-warning-toast {
